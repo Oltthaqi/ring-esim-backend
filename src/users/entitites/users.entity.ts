@@ -11,6 +11,7 @@ import { Gender } from '../enums/gender.enum';
 import { VerificationEntity } from './verification.entity';
 import { Status } from 'src/common/enums/status.enum';
 import { Role } from '../enums/role.enum';
+import { NotificationsEntity } from 'src/notifications/entities/notification.entity';
 
 @Entity({ name: 'users' })
 export class UsersEntity {
@@ -104,4 +105,6 @@ export class UsersEntity {
     enum: Role,
   })
   role: Role;
+  @OneToMany(() => NotificationsEntity, (notification) => notification.user)
+  notifications: NotificationsEntity[];
 }
