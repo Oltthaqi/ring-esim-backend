@@ -103,6 +103,9 @@ export class OrdersService {
       await this.orderRepository.update(orderId, {
         status: OrderStatus.COMPLETED,
       });
+
+      // Note: Usage tracking will be initialized by the usage service
+      // when it detects a completed order
     } catch (error) {
       // Update status to failed with error details
       await this.orderRepository.update(orderId, {
@@ -279,7 +282,7 @@ export class OrdersService {
 
     const orders = await this.orderRepository.find({
       where: { userId },
-      relations: ['packageTemplate'],
+      relations: ['packageTemplate', 'usage'],
       order: { createdAt: 'DESC' },
     });
 
@@ -540,7 +543,27 @@ export class OrdersService {
     return request;
   }
 
+  /**
+   * Get order details for usage tracking
+   * This method can be called by the usage service to get order information
+   */
+  async getOrderForUsageTracking(orderId: string): Promise<Order> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['packageTemplate', 'user'],
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    return order;
+  }
+
   private toResponseDto(order: Order): OrderResponseDto {
+    // Get the first usage record (there should only be one per order)
+    const usage = order.usage && order.usage.length > 0 ? order.usage[0] : null;
+
     return {
       id: order.id,
       orderNumber: order.orderNumber,
@@ -580,6 +603,22 @@ export class OrdersService {
       errorMessage: order.errorMessage,
       paymentIntentId: order.paymentIntentId,
       paymentStatus: order.paymentStatus,
+      usage: usage
+        ? {
+            id: usage.id,
+            subscriberId: usage.subscriberId,
+            totalDataUsed: usage.totalDataUsed,
+            totalDataAllowed: usage.totalDataAllowed,
+            totalDataRemaining: usage.totalDataRemaining,
+            usagePercentage:
+              usage.totalDataAllowed > 0
+                ? (usage.totalDataUsed / usage.totalDataAllowed) * 100
+                : 0,
+            isActive: usage.isActive,
+            status: usage.status,
+            lastSyncedAt: usage.lastSyncedAt,
+          }
+        : undefined,
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
     };

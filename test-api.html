@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>API Test - Orders with Usage and Package Template</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+      }
+      .container {
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+      .endpoint {
+        margin: 20px 0;
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+      }
+      .response {
+        background: #f5f5f5;
+        padding: 10px;
+        border-radius: 3px;
+        white-space: pre-wrap;
+      }
+      button {
+        padding: 10px 20px;
+        background: #007bff;
+        color: white;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #0056b3;
+      }
+      input {
+        padding: 5px;
+        margin: 5px;
+        width: 300px;
+      }
+      .error {
+        color: red;
+      }
+      .success {
+        color: green;
+      }
+      .usage-stats {
+        background: #e8f4f8;
+        padding: 15px;
+        margin: 10px 0;
+        border-radius: 5px;
+      }
+      .package-info {
+        background: #f0f8ff;
+        padding: 15px;
+        margin: 10px 0;
+        border-radius: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🚀 Real-Time Usage Tracking API Test</h1>
+
+      <div class="endpoint">
+        <h3>🔐 Authentication</h3>
+        <input
+          type="text"
+          id="token"
+          placeholder="Enter your JWT token here..."
+        />
+        <button onclick="setToken()">Set Token</button>
+        <p id="tokenStatus">No token set</p>
+      </div>
+
+      <div class="endpoint">
+        <h3>📱 GET /api/orders/my-orders (with Package Template & Usage)</h3>
+        <button onclick="getMyOrders()">Get My Orders</button>
+        <div id="myOrdersResponse" class="response"></div>
+      </div>
+
+      <div class="endpoint">
+        <h3>📊 GET /api/usage/summary (Usage Dashboard)</h3>
+        <button onclick="getUsageSummary()">Get Usage Summary</button>
+        <div id="usageSummaryResponse" class="response"></div>
+      </div>
+
+      <div class="endpoint">
+        <h3>📈 GET /api/usage/my-usage (Detailed Usage)</h3>
+        <button onclick="getMyUsage()">Get My Usage</button>
+        <div id="myUsageResponse" class="response"></div>
+      </div>
+
+      <div class="endpoint">
+        <h3>🔄 Create Usage Record for Order</h3>
+        <input type="text" id="orderId" placeholder="Enter Order ID..." />
+        <button onclick="createUsageRecord()">Create Usage Record</button>
+        <div id="createUsageResponse" class="response"></div>
+      </div>
+
+      <div class="endpoint">
+        <h3>⚡ Sync Usage with OCS</h3>
+        <input type="text" id="usageId" placeholder="Enter Usage ID..." />
+        <button onclick="syncUsage()">Sync Usage</button>
+        <div id="syncUsageResponse" class="response"></div>
+      </div>
+    </div>
+
+    <script>
+      let authToken = '';
+      const baseURL = 'http://localhost:3000/api';
+
+      function setToken() {
+        authToken = document.getElementById('token').value;
+        document.getElementById('tokenStatus').innerHTML = authToken
+          ? '<span class="success">Token set ✓</span>'
+          : '<span class="error">No token</span>';
+      }
+
+      function formatBytes(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+      }
+
+      function formatResponse(data) {
+        if (Array.isArray(data)) {
+          return data.map((item) => formatOrderItem(item)).join('\n\n');
+        } else if (data && typeof data === 'object') {
+          return formatOrderItem(data);
+        }
+        return JSON.stringify(data, null, 2);
+      }
+
+      function formatOrderItem(order) {
+        let result = `📦 Order: ${order.orderNumber}\n`;
+        result += `   Status: ${order.status}\n`;
+        result += `   Type: ${order.orderType}\n`;
+        result += `   Amount: ${order.currency} ${order.amount}\n`;
+
+        if (order.packageTemplate) {
+          result += `\n📋 Package Template:\n`;
+          result += `   Name: ${order.packageTemplate.packageTemplateName}\n`;
+          result += `   Zone: ${order.packageTemplate.zoneName}\n`;
+          result += `   Volume: ${order.packageTemplate.volume}\n`;
+          result += `   Price: ${order.packageTemplate.currency} ${order.packageTemplate.price}\n`;
+          result += `   Duration: ${order.packageTemplate.periodDays} days\n`;
+        }
+
+        if (order.usage) {
+          result += `\n📊 Usage Statistics:\n`;
+          result += `   Subscriber ID: ${order.usage.subscriberId}\n`;
+          result += `   Data Used: ${formatBytes(order.usage.totalDataUsed)}\n`;
+          result += `   Data Allowed: ${formatBytes(order.usage.totalDataAllowed)}\n`;
+          result += `   Data Remaining: ${formatBytes(order.usage.totalDataRemaining)}\n`;
+          result += `   Usage: ${order.usage.usagePercentage.toFixed(1)}%\n`;
+          result += `   Status: ${order.usage.status} (${order.usage.isActive ? 'Active' : 'Inactive'})\n`;
+          result += `   Last Sync: ${order.usage.lastSyncedAt || 'Never'}\n`;
+        } else {
+          result += `\n⚠️  No usage data available - Create usage record first\n`;
+        }
+
+        return result;
+      }
+
+      async function apiCall(endpoint, method = 'GET', body = null) {
+        try {
+          const options = {
+            method,
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${authToken}`,
+            },
+          };
+
+          if (body) options.body = JSON.stringify(body);
+
+          const response = await fetch(`${baseURL}${endpoint}`, options);
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(
+              `HTTP ${response.status}: ${data.message || 'Unknown error'}`,
+            );
+          }
+
+          return data;
+        } catch (error) {
+          throw error;
+        }
+      }
+
+      async function getMyOrders() {
+        try {
+          const data = await apiCall('/orders/my-orders');
+          document.getElementById('myOrdersResponse').innerHTML =
+            formatResponse(data);
+        } catch (error) {
+          document.getElementById('myOrdersResponse').innerHTML =
+            `Error: ${error.message}`;
+        }
+      }
+
+      async function getUsageSummary() {
+        try {
+          const data = await apiCall('/usage/summary');
+          let result = `📊 Usage Summary Dashboard\n\n`;
+          result += `Total Subscriptions: ${data.totalSubscriptions}\n`;
+          result += `Total Data Used: ${formatBytes(data.totalDataUsed)}\n`;
+          result += `Total Data Allowed: ${formatBytes(data.totalDataAllowed)}\n`;
+          result += `Total Data Remaining: ${formatBytes(data.totalDataRemaining)}\n`;
+          result += `Average Usage: ${data.averageUsagePercentage.toFixed(1)}%\n\n`;
+          result += `Individual Subscriptions:\n`;
+          result += data.subscriptions
+            .map(
+              (sub) =>
+                `• ${sub.subscriberId}: ${formatBytes(sub.totalDataUsed)}/${formatBytes(sub.totalDataAllowed)} (${sub.usagePercentage.toFixed(1)}%)`,
+            )
+            .join('\n');
+
+          document.getElementById('usageSummaryResponse').innerHTML = result;
+        } catch (error) {
+          document.getElementById('usageSummaryResponse').innerHTML =
+            `Error: ${error.message}`;
+        }
+      }
+
+      async function getMyUsage() {
+        try {
+          const data = await apiCall('/usage/my-usage');
+          let result = `📈 Detailed Usage Records\n\n`;
+          result += `Total Records: ${data.total}\n`;
+          result += `Page: ${data.page} (Limit: ${data.limit})\n\n`;
+          result += data.data
+            .map((usage) => {
+              let item = `📊 Usage ID: ${usage.id}\n`;
+              item += `   Subscriber: ${usage.subscriberId}\n`;
+              item += `   Used: ${formatBytes(usage.totalDataUsed)} / ${formatBytes(usage.totalDataAllowed)}\n`;
+              item += `   Remaining: ${formatBytes(usage.totalDataRemaining)}\n`;
+              item += `   Progress: ${usage.usagePercentage.toFixed(1)}%\n`;
+              item += `   Status: ${usage.status}\n`;
+              return item;
+            })
+            .join('\n');
+
+          document.getElementById('myUsageResponse').innerHTML = result;
+        } catch (error) {
+          document.getElementById('myUsageResponse').innerHTML =
+            `Error: ${error.message}`;
+        }
+      }
+
+      async function createUsageRecord() {
+        const orderId = document.getElementById('orderId').value;
+        if (!orderId) {
+          document.getElementById('createUsageResponse').innerHTML =
+            'Please enter an Order ID';
+          return;
+        }
+
+        try {
+          const data = await apiCall(`/usage/order/${orderId}/create`, 'POST');
+          document.getElementById('createUsageResponse').innerHTML =
+            `✅ Usage record created successfully!\n\n${formatResponse(data)}`;
+        } catch (error) {
+          document.getElementById('createUsageResponse').innerHTML =
+            `Error: ${error.message}`;
+        }
+      }
+
+      async function syncUsage() {
+        const usageId = document.getElementById('usageId').value;
+        if (!usageId) {
+          document.getElementById('syncUsageResponse').innerHTML =
+            'Please enter a Usage ID';
+          return;
+        }
+
+        try {
+          const data = await apiCall(`/usage/${usageId}/sync`, 'POST');
+          document.getElementById('syncUsageResponse').innerHTML =
+            `✅ Usage synced successfully!\n\n${formatResponse(data)}`;
+        } catch (error) {
+          document.getElementById('syncUsageResponse').innerHTML =
+            `Error: ${error.message}`;
+        }
+      }
+    </script>
+  </body>
+</html>

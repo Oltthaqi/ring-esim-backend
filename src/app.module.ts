@@ -14,6 +14,8 @@ import { PackageTemplateModule } from './package-template/package-template.modul
 import { DestinationsModule } from './destinations/destinations.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
+import { UsageModule } from './usage/usage.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
   imports: [
@@ -36,6 +38,7 @@ import { PaymentsModule } from './payments/payments.module';
       }),
       inject: [ConfigService],
     }),
+    ScheduleModule.forRoot(),
     UsersModule,
     AuthModule,
     EmailModule,
@@ -47,6 +50,7 @@ import { PaymentsModule } from './payments/payments.module';
     DestinationsModule,
     OrdersModule,
     PaymentsModule,
+    UsageModule,
   ],
   controllers: [AppController],
   providers: [AppService],

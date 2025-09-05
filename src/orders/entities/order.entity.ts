@@ -5,10 +5,12 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
+  OneToMany,
   JoinColumn,
 } from 'typeorm';
 import { UsersEntity } from '../../users/entitites/users.entity';
 import { PackageTemplate } from '../../package-template/entities/package-template.entity';
+import { Usage } from '../../usage/entities/usage.entity';
 
 export enum OrderStatus {
   PENDING = 'pending',
@@ -135,6 +137,10 @@ export class Order {
     nullable: true,
   })
   paymentStatus: string;
+
+  // Usage tracking relationship
+  @OneToMany(() => Usage, (usage) => usage.order)
+  usage: Usage[];
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

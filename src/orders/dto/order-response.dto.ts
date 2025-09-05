@@ -201,4 +201,31 @@ export class OrderResponseDto {
     example: '2024-01-15T10:05:00Z',
   })
   updatedAt: Date;
+
+  @ApiPropertyOptional({
+    description: 'Usage tracking data for this order',
+    type: 'object',
+    properties: {
+      id: { type: 'string', example: '123e4567-e89b-12d3-a456-426614174000' },
+      subscriberId: { type: 'number', example: 28345617 },
+      totalDataUsed: { type: 'number', example: 524288000 },
+      totalDataAllowed: { type: 'number', example: 5368709120 },
+      totalDataRemaining: { type: 'number', example: 4844421120 },
+      usagePercentage: { type: 'number', example: 9.77 },
+      isActive: { type: 'boolean', example: true },
+      status: { type: 'string', example: 'active' },
+      lastSyncedAt: { type: 'string', format: 'date-time' },
+    },
+  })
+  usage?: {
+    id: string;
+    subscriberId: number;
+    totalDataUsed: number;
+    totalDataAllowed: number;
+    totalDataRemaining: number;
+    usagePercentage: number;
+    isActive: boolean;
+    status: string;
+    lastSyncedAt: Date | null;
+  };
 }
