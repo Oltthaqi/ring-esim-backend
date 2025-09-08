@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Complete eSIM Flow Tester</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        margin: 20px;
+        background: #f5f5f5;
+      }
+      .container {
+        max-width: 1000px;
+        margin: 0 auto;
+      }
+      .step {
+        background: white;
+        margin: 20px 0;
+        padding: 20px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      .step-header {
+        display: flex;
+        align-items: center;
+        margin-bottom: 15px;
+      }
+      .step-number {
+        background: #007bff;
+        color: white;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-right: 15px;
+        font-weight: bold;
+      }
+      .step.completed .step-number {
+        background: #28a745;
+      }
+      .step.error .step-number {
+        background: #dc3545;
+      }
+      .step-title {
+        font-size: 18px;
+        font-weight: bold;
+      }
+      .step-content {
+        margin-left: 45px;
+      }
+      button {
+        padding: 10px 20px;
+        background: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        margin: 5px 5px 5px 0;
+      }
+      button:hover {
+        background: #0056b3;
+      }
+      button:disabled {
+        background: #6c757d;
+        cursor: not-allowed;
+      }
+      input,
+      select {
+        padding: 8px;
+        margin: 5px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+      .response {
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 4px;
+        margin: 10px 0;
+        white-space: pre-wrap;
+        font-family: monospace;
+        font-size: 12px;
+        max-height: 300px;
+        overflow-y: auto;
+      }
+      .success {
+        color: #28a745;
+      }
+      .error {
+        color: #dc3545;
+      }
+      .info {
+        color: #17a2b8;
+      }
+      .warning {
+        color: #ffc107;
+      }
+      .progress {
+        background: #e9ecef;
+        height: 20px;
+        border-radius: 10px;
+        overflow: hidden;
+        margin: 20px 0;
+      }
+      .progress-bar {
+        background: #007bff;
+        height: 100%;
+        transition: width 0.3s ease;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin: 20px 0;
+      }
+      .stat-card {
+        background: white;
+        padding: 15px;
+        border-radius: 8px;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+      }
+      .stat-value {
+        font-size: 24px;
+        font-weight: bold;
+        color: #007bff;
+      }
+      .stat-label {
+        color: #6c757d;
+        margin-top: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🧪 Complete eSIM Flow Tester</h1>
+      <p>
+        Test the complete journey: Order eSIM → Process → Usage Tracking →
+        Top-up → Consolidated Usage
+      </p>
+
+      <div class="progress">
+        <div class="progress-bar" id="progressBar" style="width: 0%"></div>
+      </div>
+
+      <div class="stats" id="statsContainer" style="display: none">
+        <div class="stat-card">
+          <div class="stat-value" id="totalOrders">0</div>
+          <div class="stat-label">Orders Created</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="totalUsage">0GB</div>
+          <div class="stat-label">Total Allowance</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="usagePercent">0%</div>
+          <div class="stat-label">Usage Percentage</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="subscriberId">-</div>
+          <div class="stat-label">Subscriber ID</div>
+        </div>
+      </div>
+
+      <!-- Step 1: Authentication -->
+      <div class="step" id="step1">
+        <div class="step-header">
+          <div class="step-number">1</div>
+          <div class="step-title">Authentication</div>
+        </div>
+        <div class="step-content">
+          <input
+            type="email"
+            id="email"
+            placeholder="Email"
+            value="test@example.com"
+          />
+          <input
+            type="password"
+            id="password"
+            placeholder="Password"
+            value="password123"
+          />
+          <button onclick="authenticate()">Login</button>
+          <div id="authResponse" class="response" style="display: none"></div>
+        </div>
+      </div>
+
+      <!-- Step 2: Create Order -->
+      <div class="step" id="step2">
+        <div class="step-header">
+          <div class="step-number">2</div>
+          <div class="step-title">Create eSIM Order</div>
+        </div>
+        <div class="step-content">
+          <input
+            type="text"
+            id="packageTemplateId"
+            placeholder="Package Template ID"
+            value="0278953d-abb5-4135-8068-01c2e8a066df"
+          />
+          <input
+            type="number"
+            id="orderAmount"
+            placeholder="Amount"
+            value="49.99"
+            step="0.01"
+          />
+          <select id="orderCurrency">
+            <option value="USD">USD</option>
+            <option value="EUR">EUR</option>
+          </select>
+          <button onclick="createOrder()" disabled id="createOrderBtn">
+            Create Order
+          </button>
+          <div id="orderResponse" class="response" style="display: none"></div>
+        </div>
+      </div>
+
+      <!-- Step 3: Process Order -->
+      <div class="step" id="step3">
+        <div class="step-header">
+          <div class="step-number">3</div>
+          <div class="step-title">Process Order (OCS Activation)</div>
+        </div>
+        <div class="step-content">
+          <button onclick="processOrder()" disabled id="processOrderBtn">
+            Process Order
+          </button>
+          <div
+            id="processResponse"
+            class="response"
+            style="display: none"
+          ></div>
+        </div>
+      </div>
+
+      <!-- Step 4: Create Usage Tracking -->
+      <div class="step" id="step4">
+        <div class="step-header">
+          <div class="step-number">4</div>
+          <div class="step-title">Create Usage Tracking</div>
+        </div>
+        <div class="step-content">
+          <button onclick="createUsageTracking()" disabled id="createUsageBtn">
+            Create Usage Tracking
+          </button>
+          <div id="usageResponse" class="response" style="display: none"></div>
+        </div>
+      </div>
+
+      <!-- Step 5: Create Top-up -->
+      <div class="step" id="step5">
+        <div class="step-header">
+          <div class="step-number">5</div>
+          <div class="step-title">Create Top-up Order</div>
+        </div>
+        <div class="step-content">
+          <input
+            type="text"
+            id="topupPackageId"
+            placeholder="Top-up Package Template ID"
+            value="0278953d-abb5-4135-8068-01c2e8a066df"
+          />
+          <input
+            type="number"
+            id="topupAmount"
+            placeholder="Top-up Amount"
+            value="25.99"
+            step="0.01"
+          />
+          <button onclick="createTopup()" disabled id="createTopupBtn">
+            Create Top-up
+          </button>
+          <div id="topupResponse" class="response" style="display: none"></div>
+        </div>
+      </div>
+
+      <!-- Step 6: Process Top-up -->
+      <div class="step" id="step6">
+        <div class="step-header">
+          <div class="step-number">6</div>
+          <div class="step-title">Process Top-up</div>
+        </div>
+        <div class="step-content">
+          <button onclick="processTopup()" disabled id="processTopupBtn">
+            Process Top-up
+          </button>
+          <div
+            id="processTopupResponse"
+            class="response"
+            style="display: none"
+          ></div>
+        </div>
+      </div>
+
+      <!-- Step 7: Create Top-up Usage Tracking -->
+      <div class="step" id="step7">
+        <div class="step-header">
+          <div class="step-number">7</div>
+          <div class="step-title">Create Top-up Usage Tracking</div>
+        </div>
+        <div class="step-content">
+          <button
+            onclick="createTopupUsage()"
+            disabled
+            id="createTopupUsageBtn"
+          >
+            Create Top-up Usage
+          </button>
+          <div
+            id="topupUsageResponse"
+            class="response"
+            style="display: none"
+          ></div>
+        </div>
+      </div>
+
+      <!-- Step 8: View Results -->
+      <div class="step" id="step8">
+        <div class="step-header">
+          <div class="step-number">8</div>
+          <div class="step-title">View Complete Results</div>
+        </div>
+        <div class="step-content">
+          <button onclick="viewMyOrders()" disabled id="viewOrdersBtn">
+            View My Orders
+          </button>
+          <button
+            onclick="viewConsolidatedUsage()"
+            disabled
+            id="viewConsolidatedBtn"
+          >
+            View Consolidated Usage
+          </button>
+          <button onclick="syncUsage()" disabled id="syncUsageBtn">
+            Sync Usage with OCS
+          </button>
+          <div
+            id="resultsResponse"
+            class="response"
+            style="display: none"
+          ></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let authToken = '';
+      let orderId = '';
+      let topupOrderId = '';
+      let subscriberId = '';
+      let usageId = '';
+      let topupUsageId = '';
+      const baseURL = 'http://localhost:3000/api';
+
+      let currentStep = 1;
+      const totalSteps = 8;
+
+      function updateProgress() {
+        const progress = ((currentStep - 1) / totalSteps) * 100;
+        document.getElementById('progressBar').style.width = progress + '%';
+      }
+
+      function markStepCompleted(stepNum) {
+        const step = document.getElementById(`step${stepNum}`);
+        step.classList.add('completed');
+        if (stepNum < totalSteps) {
+          currentStep = stepNum + 1;
+          updateProgress();
+        }
+      }
+
+      function markStepError(stepNum) {
+        const step = document.getElementById(`step${stepNum}`);
+        step.classList.add('error');
+      }
+
+      function enableButton(buttonId) {
+        document.getElementById(buttonId).disabled = false;
+      }
+
+      function formatBytes(bytes) {
+        if (bytes === 0) return '0 Bytes';
+        const k = 1024;
+        const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+      }
+
+      async function apiCall(endpoint, method = 'GET', body = null) {
+        const options = {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authToken}`,
+          },
+        };
+
+        if (body) options.body = JSON.stringify(body);
+
+        const response = await fetch(`${baseURL}${endpoint}`, options);
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            `HTTP ${response.status}: ${data.message || 'Unknown error'}`,
+          );
+        }
+
+        return data;
+      }
+
+      async function authenticate() {
+        try {
+          const email = document.getElementById('email').value;
+          const password = document.getElementById('password').value;
+
+          const response = await fetch(`${baseURL}/auth/login`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, password }),
+          });
+
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data.message || 'Authentication failed');
+          }
+
+          authToken = data.access_token;
+          document.getElementById('authResponse').innerHTML =
+            `✅ Authentication successful\nUser: ${data.user.email}\nToken: ${authToken.substring(0, 50)}...`;
+          document.getElementById('authResponse').style.display = 'block';
+
+          markStepCompleted(1);
+          enableButton('createOrderBtn');
+        } catch (error) {
+          document.getElementById('authResponse').innerHTML =
+            `❌ Error: ${error.message}`;
+          document.getElementById('authResponse').style.display = 'block';
+          markStepError(1);
+        }
+      }
+
+      async function createOrder() {
+        try {
+          const data = await apiCall('/orders', 'POST', {
+            packageTemplateId:
+              document.getElementById('packageTemplateId').value,
+            amount: parseFloat(document.getElementById('orderAmount').value),
+            currency: document.getElementById('orderCurrency').value,
+          });
+
+          orderId = data.id;
+          document.getElementById('orderResponse').innerHTML =
+            `✅ Order created successfully\nOrder ID: ${orderId}\nOrder Number: ${data.orderNumber}\nStatus: ${data.status}`;
+          document.getElementById('orderResponse').style.display = 'block';
+
+          markStepCompleted(2);
+          enableButton('processOrderBtn');
+        } catch (error) {
+          document.getElementById('orderResponse').innerHTML =
+            `❌ Error: ${error.message}`;
+          document.getElementById('orderResponse').style.display = 'block';
+          markStepError(2);
+        }
+      }
+
+      async function processOrder() {
+        try {
+          const data = await apiCall(`/orders/${orderId}/process`, 'POST');
+
+          subscriberId = data.subscriberId;
+          document.getElementById('processResponse').innerHTML =
+            `✅ Order processed successfully\nSubscriber ID: ${subscriberId}\nICCID: ${data.iccid}\nActivation Code: ${data.activationCode}\nQR Code: ${data.urlQrCode}`;
+          document.getElementById('processResponse').style.display = 'block';
+
+          markStepCompleted(3);
+          enableButton('createUsageBtn');
+          updateStats();
+        } catch (error) {
+          document.getElementById('processResponse').innerHTML =
+            `❌ Error: ${error.message}`;
+          document.getElementById('processResponse').style.display = 'block';
+          markStepError(3);
+        }
+      }
+
+      async function createUsageTracking() {
+        try {
+          const data = await apiCall(`/usage/order/${orderId}/create`, 'POST');
+
+          usageId = data.id;
+          document.getElementById('usageResponse').innerHTML =
+            `✅ Usage tracking created\nUsage ID: ${usageId}\nTotal Allowed: ${formatBytes(data.totalDataAllowed)}\nStatus: ${data.status}`;
+          document.getElementById('usageResponse').style.display = 'block';
+
+          markStepCompleted(4);
+          enableButton('createTopupBtn');
+          updateStats();
+        } catch (error) {
+          document.getElementById('usageResponse').innerHTML =
+            `❌ Error: ${error.message}`;
+          document.getElementById('usageResponse').style.display = 'block';
+          markStepError(4);
+        }
+      }
+
+      async function createTopup() {
+        try {
+          const data = await apiCall('/orders/topup', 'POST', {
+            packageTemplateId: document.getElementById('topupPackageId').value,
+            subscriberId: parseInt(subscriberId),
+            amount: parseFloat(document.getElementById('topupAmount').value),
+            currency: 'USD',
+            reportUnitsPreviousPackage: true,
+          });
+
+          topupOrderId = data.id;
+          document.getElementById('topupResponse').innerHTML =
+            `✅ Top-up order created\nTop-up Order ID: ${topupOrderId}\nOrder Number: ${data.orderNumber}\nSubscriber ID: ${data.subscriberId}`;
+          document.getElementById('topupResponse').style.display = 'block';
+
+          markStepCompleted(5);
+          enableButton('processTopupBtn');
+        } catch (error) {
+          document.getElementById('topupResponse').innerHTML =
+            `❌ Error: ${error.message}`;
+          document.getElementById('topupResponse').style.display = 'block';
+          markStepError(5);
+        }
+      }
+
+      async function processTopup() {
+        try {
+          const data = await apiCall(
+            `/orders/${topupOrderId}/topup-process`,
+            'POST',
+          );
+
+          document.getElementById('processTopupResponse').innerHTML =
+            `✅ Top-up processed successfully\nStatus: ${data.status || 'completed'}`;
+          document.getElementById('processTopupResponse').style.display =
+            'block';
+
+          markStepCompleted(6);
+          enableButton('createTopupUsageBtn');
+        } catch (error) {
+          document.getElementById('processTopupResponse').innerHTML =
+            `❌ Error: ${error.message}`;
+          document.getElementById('processTopupResponse').style.display =
+            'block';
+          markStepError(6);
+        }
+      }
+
+      async function createTopupUsage() {
+        try {
+          const data = await apiCall(
+            `/usage/order/${topupOrderId}/create`,
+            'POST',
+          );
+
+          topupUsageId = data.id;
+          document.getElementById('topupUsageResponse').innerHTML =
+            `✅ Top-up usage tracking created\nUsage ID: ${topupUsageId}\nTotal Allowed: ${formatBytes(data.totalDataAllowed)}`;
+          document.getElementById('topupUsageResponse').style.display = 'block';
+
+          markStepCompleted(7);
+          enableButton('viewOrdersBtn');
+          enableButton('viewConsolidatedBtn');
+          enableButton('syncUsageBtn');
+          updateStats();
+        } catch (error) {
+          document.getElementById('topupUsageResponse').innerHTML =
+            `❌ Error: ${error.message}`;
+          document.getElementById('topupUsageResponse').style.display = 'block';
+          markStepError(7);
+        }
+      }
+
+      async function viewMyOrders() {
+        try {
+          const data = await apiCall('/orders/my-orders');
+
+          let result = `📱 MY ORDERS (${data.length} orders)\n\n`;
+          data.forEach((order, index) => {
+            result += `${index + 1}. Order: ${order.orderNumber} (${order.orderType})\n`;
+            result += `   Package: ${order.packageTemplate?.packageTemplateName || 'N/A'}\n`;
+            result += `   Volume: ${order.packageTemplate?.volume || 'N/A'}\n`;
+            result += `   Status: ${order.status}\n`;
+            if (order.usage) {
+              result += `   Usage: ${formatBytes(order.usage.totalDataUsed)} / ${formatBytes(order.usage.totalDataAllowed)} (${order.usage.usagePercentage.toFixed(1)}%)\n`;
+              result += `   Usage Status: ${order.usage.status}\n`;
+            } else {
+              result += `   Usage: No usage data\n`;
+            }
+            result += `\n`;
+          });
+
+          document.getElementById('resultsResponse').innerHTML = result;
+          document.getElementById('resultsResponse').style.display = 'block';
+          updateStats();
+        } catch (error) {
+          document.getElementById('resultsResponse').innerHTML =
+            `❌ Error viewing orders: ${error.message}`;
+          document.getElementById('resultsResponse').style.display = 'block';
+        }
+      }
+
+      async function viewConsolidatedUsage() {
+        try {
+          const data = await apiCall('/usage/consolidated');
+
+          let result = `🔗 CONSOLIDATED USAGE (${data.total} subscribers)\n\n`;
+          data.data.forEach((subscriber, index) => {
+            result += `${index + 1}. Subscriber ID: ${subscriber.subscriberId}\n`;
+            result += `   ICCID: ${subscriber.iccid}\n`;
+            result += `   Total Usage: ${formatBytes(subscriber.totalDataUsed)} / ${formatBytes(subscriber.totalDataAllowed)}\n`;
+            result += `   Remaining: ${formatBytes(subscriber.totalDataRemaining)}\n`;
+            result += `   Usage Percentage: ${subscriber.usagePercentage.toFixed(2)}%\n`;
+            result += `   Status: ${subscriber.status}\n`;
+            result += `   Total Packages: ${subscriber.totalPackages}\n`;
+            result += `   Last Synced: ${subscriber.lastSyncedAt || 'Never'}\n`;
+
+            result += `\n   Package Breakdown:\n`;
+            subscriber.packages.forEach((pkg, i) => {
+              result += `     ${i + 1}. ${pkg.packageName || 'Unknown Package'} (${pkg.volume})\n`;
+              result += `        Type: ${pkg.orderType}\n`;
+              result += `        Allowance: ${formatBytes(pkg.allowanceBytes)}\n`;
+              result += `        Added: ${new Date(pkg.addedAt).toLocaleDateString()}\n`;
+            });
+            result += `\n`;
+          });
+
+          document.getElementById('resultsResponse').innerHTML = result;
+          document.getElementById('resultsResponse').style.display = 'block';
+          updateStats();
+        } catch (error) {
+          document.getElementById('resultsResponse').innerHTML =
+            `❌ Error viewing consolidated usage: ${error.message}`;
+          document.getElementById('resultsResponse').style.display = 'block';
+        }
+      }
+
+      async function syncUsage() {
+        try {
+          let result = `🔄 SYNCING USAGE WITH OCS...\n\n`;
+
+          if (usageId) {
+            await apiCall(`/usage/${usageId}/sync`, 'POST');
+            result += `✅ Original usage record synced\n`;
+          }
+
+          if (topupUsageId) {
+            await apiCall(`/usage/${topupUsageId}/sync`, 'POST');
+            result += `✅ Top-up usage record synced\n`;
+          }
+
+          result += `\n📊 Updated usage data:\n`;
+
+          // Get updated consolidated usage
+          const data = await apiCall('/usage/consolidated');
+          data.data.forEach((subscriber) => {
+            result += `\nSubscriber ${subscriber.subscriberId}:\n`;
+            result += `  Usage: ${formatBytes(subscriber.totalDataUsed)} / ${formatBytes(subscriber.totalDataAllowed)} (${subscriber.usagePercentage.toFixed(2)}%)\n`;
+            result += `  Last Synced: ${new Date(subscriber.lastSyncedAt).toLocaleString()}\n`;
+          });
+
+          document.getElementById('resultsResponse').innerHTML = result;
+          document.getElementById('resultsResponse').style.display = 'block';
+          updateStats();
+        } catch (error) {
+          document.getElementById('resultsResponse').innerHTML =
+            `❌ Error syncing usage: ${error.message}`;
+          document.getElementById('resultsResponse').style.display = 'block';
+        }
+      }
+
+      async function updateStats() {
+        if (!authToken) return;
+
+        try {
+          // Get consolidated usage for stats
+          const consolidated = await apiCall('/usage/consolidated');
+          const orders = await apiCall('/orders/my-orders');
+
+          document.getElementById('totalOrders').textContent = orders.length;
+          document.getElementById('subscriberId').textContent =
+            subscriberId || '-';
+
+          if (consolidated.data.length > 0) {
+            const subscriber = consolidated.data[0];
+            document.getElementById('totalUsage').textContent = formatBytes(
+              subscriber.totalDataAllowed,
+            );
+            document.getElementById('usagePercent').textContent =
+              subscriber.usagePercentage.toFixed(1) + '%';
+          }
+
+          document.getElementById('statsContainer').style.display = 'grid';
+        } catch (error) {
+          console.log('Stats update failed:', error);
+        }
+      }
+    </script>
+  </body>
+</html>

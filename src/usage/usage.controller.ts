@@ -159,6 +159,92 @@ export class UsageController {
     },
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiOperation({
+    summary: 'Get consolidated usage by subscriber (aggregates all packages)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Consolidated usage data retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        data: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              subscriberId: { type: 'number', example: 28345719 },
+              iccid: { type: 'string', example: '8948010000054019583' },
+              totalDataUsed: { type: 'number', example: 2147483648 },
+              totalDataAllowed: { type: 'number', example: 16106127360 },
+              totalDataRemaining: { type: 'number', example: 13958643712 },
+              usagePercentage: { type: 'number', example: 13.34 },
+              packages: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    orderId: { type: 'string' },
+                    orderType: { type: 'string', example: 'one_time' },
+                    packageName: { type: 'string' },
+                    volume: { type: 'string', example: '10GB' },
+                    allowanceBytes: { type: 'number' },
+                  },
+                },
+              },
+              totalPackages: { type: 'number', example: 2 },
+            },
+          },
+        },
+        total: { type: 'number', example: 1 },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @Get('consolidated')
+  @Roles(Role.USER, Role.ADMIN)
+  async getConsolidatedUsage(
+    @Request() req: AuthenticatedRequest,
+  ): Promise<any> {
+    const userId = req.user.uuid || req.user.id;
+    if (!userId) {
+      throw new BadRequestException('User ID not found in JWT token');
+    }
+
+    return this.usageService.getConsolidatedUsageBySubscriber(userId);
+  }
+
+  @ApiOperation({ summary: 'Get usage summary for current user' })
+  @ApiResponse({
+    status: 200,
+    description: 'Usage summary retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        totalSubscriptions: { type: 'number', example: 2 },
+        totalDataUsed: { type: 'number', example: 2147483648 },
+        totalDataAllowed: { type: 'number', example: 16106127360 },
+        totalDataRemaining: { type: 'number', example: 13958643712 },
+        averageUsagePercentage: { type: 'number', example: 13.34 },
+        subscriptions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              subscriberId: { type: 'number', example: 28345719 },
+              totalDataUsed: { type: 'number', example: 2147483648 },
+              totalDataAllowed: { type: 'number', example: 10737418240 },
+              totalDataRemaining: { type: 'number', example: 8589934592 },
+              usagePercentage: { type: 'number', example: 20.0 },
+              status: { type: 'string', example: 'active' },
+              lastSyncedAt: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
   @Get('summary')
   @Roles(Role.USER, Role.ADMIN)
   async getUsageSummary(@Request() req: AuthenticatedRequest) {

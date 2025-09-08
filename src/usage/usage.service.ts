@@ -3,6 +3,8 @@ import {
   NotFoundException,
   BadRequestException,
   Logger,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between } from 'typeorm';
@@ -21,6 +23,7 @@ export class UsageService {
     @InjectRepository(Usage)
     private readonly usageRepository: Repository<Usage>,
     private readonly ocsService: OcsService,
+    @Inject(forwardRef(() => OrdersService))
     private readonly ordersService: OrdersService,
   ) {}
 
@@ -133,6 +136,116 @@ export class UsageService {
       total,
       page,
       limit,
+    };
+  }
+
+  /**
+   * Get consolidated usage by subscriber (aggregates all packages for same subscriber)
+   */
+  async getConsolidatedUsageBySubscriber(userId: string): Promise<{
+    data: any[];
+    total: number;
+  }> {
+    // Get all usage records for user, grouped by subscriber
+    const usageRecords = await this.usageRepository.find({
+      where: { order: { userId } },
+      relations: ['order', 'order.packageTemplate'],
+      order: { createdAt: 'ASC' },
+    });
+
+    // Group by subscriberId
+    const subscriberGroups = new Map<number, any[]>();
+
+    for (const usage of usageRecords) {
+      const subscriberId = usage.subscriberId;
+      if (!subscriberGroups.has(subscriberId)) {
+        subscriberGroups.set(subscriberId, []);
+      }
+      subscriberGroups.get(subscriberId)!.push(usage);
+    }
+
+    const consolidatedData: any[] = [];
+
+    // For each subscriber, consolidate all their packages
+    for (const [subscriberId, usageList] of subscriberGroups) {
+      // Sort by creation date to get original order first
+      usageList.sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
+
+      const originalUsage = usageList[0]; // First order (original eSIM)
+
+      // Calculate total allowance from all packages
+      const totalDataAllowed = usageList.reduce(
+        (sum, usage) => sum + Number(usage.totalDataAllowed),
+        0,
+      );
+
+      // Use the most recent sync data (they should all be the same from OCS)
+      const latestUsage =
+        usageList.find((u) => u.lastSyncedAt) || originalUsage;
+
+      // Calculate remaining based on total allowance
+      const totalDataUsed = Number(latestUsage.totalDataUsed);
+      const totalDataRemaining = Math.max(0, totalDataAllowed - totalDataUsed);
+      const usagePercentage =
+        totalDataAllowed > 0 ? (totalDataUsed / totalDataAllowed) * 100 : 0;
+
+      consolidatedData.push({
+        subscriberId,
+        iccid: originalUsage.iccid,
+        imsi: originalUsage.imsi,
+        msisdn: originalUsage.msisdn,
+
+        // Consolidated data usage
+        totalDataUsed, // OCS returns total across all packages
+        totalDataAllowed, // Sum of all package allowances
+        totalDataRemaining,
+        usagePercentage,
+
+        // Other usage stats
+        totalCallDuration: latestUsage.totalCallDuration,
+        totalSmsCount: latestUsage.totalSmsCount,
+        totalResellerCost: latestUsage.totalResellerCost,
+        totalSubscriberCost: latestUsage.totalSubscriberCost,
+
+        // Status
+        isActive: latestUsage.isActive,
+        status: totalDataRemaining <= 0 ? 'exhausted' : 'active',
+
+        // Dates
+        firstUsageDate: latestUsage.firstUsageDate,
+        lastUsageDate: latestUsage.lastUsageDate,
+        packageStartDate: originalUsage.packageStartDate,
+        packageEndDate: latestUsage.packageEndDate,
+        lastSyncedAt: latestUsage.lastSyncedAt,
+
+        // Location info
+        lastUsageCountry: latestUsage.lastUsageCountry,
+        lastUsageOperator: latestUsage.lastUsageOperator,
+
+        // Package breakdown
+        packages: usageList.map((usage) => ({
+          orderId: usage.orderId,
+          orderNumber: usage.order?.orderNumber,
+          orderType: usage.order?.orderType,
+          packageName: usage.order?.packageTemplate?.packageTemplateName,
+          volume: usage.order?.packageTemplate?.volume,
+          allowanceBytes: Number(usage.totalDataAllowed),
+          addedAt: usage.createdAt,
+        })),
+
+        totalPackages: usageList.length,
+        originalOrderId: originalUsage.orderId,
+        createdAt: originalUsage.createdAt,
+        updatedAt: latestUsage.updatedAt,
+      });
+    }
+
+    return {
+      data: consolidatedData,
+      total: consolidatedData.length,
     };
   }
 

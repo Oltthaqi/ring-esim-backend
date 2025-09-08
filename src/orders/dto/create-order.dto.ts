@@ -11,23 +11,25 @@ import { OrderType } from '../entities/order.entity';
 
 export class CreateOrderDto {
   @ApiProperty({
-    description: 'OCS Package Template ID to purchase',
-    example: '234593',
+    description: 'Package Template ID to purchase',
+    example: '594193',
   })
   @IsString()
   packageTemplateId: string;
 
-  @ApiProperty({
-    description: 'Type of order - one-time or recurring',
+  @ApiPropertyOptional({
+    description: 'Type of order - defaults to one-time',
     enum: OrderType,
     example: OrderType.ONE_TIME,
+    default: OrderType.ONE_TIME,
   })
   @IsEnum(OrderType)
-  orderType: OrderType;
+  @IsOptional()
+  orderType?: OrderType;
 
   @ApiProperty({
     description: 'Order amount',
-    example: 1.0,
+    example: 1.99,
     type: 'number',
   })
   @IsNumber()
@@ -35,16 +37,17 @@ export class CreateOrderDto {
 
   @ApiPropertyOptional({
     description: 'Currency code (defaults to USD)',
-    example: 'USD',
+    example: 'EUR',
     default: 'USD',
   })
   @IsString()
   @IsOptional()
   currency?: string;
 
-  // Subscriber identification (all optional - system will auto-allocate if none provided)
+  // Advanced fields (optional - for specific use cases only)
+  // Note: Most users should use POST /orders/simple instead
   @ApiPropertyOptional({
-    description: 'Subscriber ID for existing subscriber (optional)',
+    description: 'Subscriber ID for existing subscriber (advanced use only)',
     example: 28345617,
     type: 'number',
   })
@@ -53,7 +56,7 @@ export class CreateOrderDto {
   subscriberId?: number;
 
   @ApiPropertyOptional({
-    description: 'IMSI for subscriber identification (optional)',
+    description: 'IMSI for subscriber identification (advanced use only)',
     example: '123456789012345',
   })
   @IsString()
@@ -61,7 +64,7 @@ export class CreateOrderDto {
   imsi?: string;
 
   @ApiPropertyOptional({
-    description: 'ICCID for subscriber identification (optional)',
+    description: 'ICCID for subscriber identification (advanced use only)',
     example: '8948010000054019245',
   })
   @IsString()
@@ -70,7 +73,7 @@ export class CreateOrderDto {
 
   @ApiPropertyOptional({
     description:
-      'MSISDN (phone number) for subscriber identification (optional)',
+      'MSISDN (phone number) for subscriber identification (advanced use only)',
     example: '+1234567890',
   })
   @IsString()
@@ -78,16 +81,18 @@ export class CreateOrderDto {
   msisdn?: string;
 
   @ApiPropertyOptional({
-    description: 'Activation code for subscriber identification (optional)',
+    description:
+      'Activation code for subscriber identification (advanced use only)',
     example: 'K2-2KPOHA-9P0O2H',
   })
   @IsString()
   @IsOptional()
   activationCode?: string;
 
-  // Package configuration (all optional - will use defaults)
+  // Package configuration (advanced options - optional)
   @ApiPropertyOptional({
-    description: 'Validity period in days (optional - uses package default)',
+    description:
+      'Validity period in days (uses package default if not specified)',
     example: 7,
     minimum: 1,
     maximum: 365,
@@ -97,7 +102,7 @@ export class CreateOrderDto {
   validityPeriod?: number;
 
   @ApiPropertyOptional({
-    description: 'Start date and time for package activation (optional)',
+    description: 'Start date and time for package activation',
     example: '2024-01-15T10:00:00Z',
     format: 'date-time',
   })
@@ -106,7 +111,7 @@ export class CreateOrderDto {
   activePeriodStart?: string;
 
   @ApiPropertyOptional({
-    description: 'End date and time for package expiration (optional)',
+    description: 'End date and time for package expiration',
     example: '2024-02-15T10:00:00Z',
     format: 'date-time',
   })
@@ -114,9 +119,8 @@ export class CreateOrderDto {
   @IsOptional()
   activePeriodEnd?: string;
 
-  // Recurring package specific fields
   @ApiPropertyOptional({
-    description: 'Start time for recurring packages (UTC) (optional)',
+    description: 'Start time for recurring packages (UTC)',
     example: '2024-01-15T10:00:00Z',
     format: 'date-time',
   })
@@ -125,7 +129,7 @@ export class CreateOrderDto {
   startTimeUTC?: string;
 
   @ApiPropertyOptional({
-    description: 'Whether to activate package on first use (optional)',
+    description: 'Whether to activate package on first use',
     example: false,
     default: false,
   })

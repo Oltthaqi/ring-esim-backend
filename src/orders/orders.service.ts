@@ -2,17 +2,22 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order, OrderStatus, OrderType } from './entities/order.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { CreateSimpleOrderDto } from './dto/create-simple-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderResponseDto } from './dto/order-response.dto';
 import { TopupOrderDto } from './dto/topup-order.dto';
 import { OcsService } from '../ocs/ocs.service';
 import { PackageTemplatesService } from '../package-template/package-template.service';
 import { UsersService } from '../users/users.service';
+import { EsimAllocationService } from '../esims/esim-allocation.service';
+import { UsageService } from '../usage/usage.service';
 
 @Injectable()
 export class OrdersService {
@@ -22,6 +27,9 @@ export class OrdersService {
     private readonly ocsService: OcsService,
     private readonly packageTemplateService: PackageTemplatesService,
     private readonly usersService: UsersService,
+    private readonly esimAllocationService: EsimAllocationService,
+    @Inject(forwardRef(() => UsageService))
+    private readonly usageService: UsageService,
   ) {}
 
   async create(
@@ -50,6 +58,7 @@ export class OrdersService {
     const order = this.orderRepository.create({
       ...createOrderDto,
       packageTemplateId: packageTemplate.id, // Use internal database UUID
+      orderType: createOrderDto.orderType || OrderType.ONE_TIME,
       userId,
       orderNumber,
       status: OrderStatus.PENDING,
@@ -68,7 +77,7 @@ export class OrdersService {
     const savedOrder = await this.orderRepository.save(order);
 
     // Process the order immediately
-    await this.processOrder(savedOrder.id);
+    // await this.processOrder(savedOrder.id);
 
     return this.toResponseDto(await this.findOne(savedOrder.id));
   }
@@ -104,8 +113,17 @@ export class OrdersService {
         status: OrderStatus.COMPLETED,
       });
 
-      // Note: Usage tracking will be initialized by the usage service
-      // when it detects a completed order
+      // Create usage tracking record for the completed order
+      try {
+        await this.usageService.createUsageRecord(orderId);
+        console.log(`✅ Usage record created for order ${orderId}`);
+      } catch (error) {
+        console.log(
+          `⚠️ Failed to create usage record for order ${orderId}:`,
+          error.message,
+        );
+        // Don't throw error here as order is already completed successfully
+      }
     } catch (error) {
       // Update status to failed with error details
       await this.orderRepository.update(orderId, {
@@ -375,17 +393,32 @@ export class OrdersService {
       where: { id: orderId },
       relations: ['packageTemplate'],
     });
+    if (!order) throw new NotFoundException('Order not found');
 
-    if (!order) {
-      throw new NotFoundException('Order not found');
+    // If already completed, do nothing (idempotent)
+    if (order.status === OrderStatus.COMPLETED) return;
+
+    // Optional: enforce payment success if you store it
+    if (order.paymentStatus && order.paymentStatus !== 'succeeded') {
+      throw new BadRequestException('Payment not captured');
     }
 
-    // Update order status to processing
-    await this.orderRepository.update(orderId, {
-      status: OrderStatus.PROCESSING,
-    });
+    // Check if order is in a processable state
+    if (order.status !== OrderStatus.PENDING) {
+      // If it's already processing, let it continue
+      if (order.status === OrderStatus.PROCESSING) {
+        console.log('Order is already being processed');
+        return;
+      }
+      if (order.status === OrderStatus.FAILED) {
+        throw new BadRequestException('Cannot process a failed order');
+      }
+      throw new BadRequestException(
+        `Order is not in pending status (current: ${order.status})`,
+      );
+    }
 
-    // Process the eSIM purchase
+    // Process the order (this will handle status changes internally)
     await this.processOrder(orderId);
   }
 
@@ -436,6 +469,92 @@ export class OrdersService {
       order,
     )) as unknown as Order;
     return this.toResponseDto(savedOrder);
+  }
+
+  /**
+   * Simplified order creation for customers
+   * Automatically allocates eSIM and processes the order
+   */
+  async createSimpleOrder(
+    userId: string,
+    createSimpleOrderDto: CreateSimpleOrderDto,
+  ): Promise<OrderResponseDto> {
+    // Verify user exists
+    const user = await this.usersService.getUserById(userId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Check eSIM availability for this package
+    const availability = await this.esimAllocationService.checkAvailability(
+      createSimpleOrderDto.packageTemplateId,
+    );
+
+    if (!availability.available) {
+      throw new BadRequestException(
+        `No eSIMs available for ${availability.packageTemplate.packageTemplateName}. Please try a different package or contact support.`,
+      );
+    }
+
+    // Allocate an eSIM
+    const allocatedEsim =
+      await this.esimAllocationService.allocateEsimForPackage(
+        createSimpleOrderDto.packageTemplateId,
+      );
+
+    // Generate order number
+    const orderNumber = await this.generateOrderNumber();
+
+    // Create order with allocated eSIM details
+    const orderData = {
+      userId,
+      orderNumber,
+      packageTemplateId: availability.packageTemplate.id, // Use internal database UUID
+      orderType: OrderType.ONE_TIME,
+      status: OrderStatus.PENDING,
+      amount: createSimpleOrderDto.amount,
+      currency: createSimpleOrderDto.currency || 'USD',
+
+      // eSIM details from allocation
+      subscriberId: allocatedEsim.subscriberId,
+      imsi: allocatedEsim.imsi || undefined,
+      iccid: allocatedEsim.iccid || undefined,
+      msisdn: allocatedEsim.phoneNumber || undefined,
+      activationCode: allocatedEsim.activationCode || undefined,
+      smdpServer: allocatedEsim.smdpServer || undefined,
+
+      // Generate QR code URL
+      urlQrCode:
+        allocatedEsim.activationCode && allocatedEsim.smdpServer
+          ? `LPA:1$${allocatedEsim.smdpServer}$${allocatedEsim.activationCode}`
+          : undefined,
+
+      // Package defaults
+      validityPeriod: availability.packageTemplate.periodDays || 30,
+      activationAtFirstUse: false,
+    };
+
+    try {
+      const order = this.orderRepository.create(orderData);
+      const savedOrder = (await this.orderRepository.save(
+        order,
+      )) as unknown as Order;
+
+      // Automatically process the order
+      await this.processOrder(savedOrder.id);
+
+      // Reload order to get updated status
+      const processedOrder = await this.orderRepository.findOneOrFail({
+        where: { id: savedOrder.id },
+        relations: ['packageTemplate'],
+      });
+
+      return this.toResponseDto(processedOrder);
+    } catch (error) {
+      // If order creation/processing fails, release the allocated eSIM
+      await this.esimAllocationService.releaseEsim(allocatedEsim.id);
+      throw error;
+    }
   }
 
   /**
@@ -496,6 +615,18 @@ export class OrdersService {
         activationCode: topupResponse.activationCode,
         ocsResponse: response as any,
       });
+
+      // Create usage tracking record for the completed top-up order
+      try {
+        await this.usageService.createUsageRecord(orderId);
+        console.log(`✅ Usage record created for top-up order ${orderId}`);
+      } catch (error) {
+        console.log(
+          `⚠️ Failed to create usage record for top-up order ${orderId}:`,
+          error.message,
+        );
+        // Don't throw error here as top-up is already completed successfully
+      }
     } catch (error: any) {
       console.log('❌ Top-up failed:', error);
 

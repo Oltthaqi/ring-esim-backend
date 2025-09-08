@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { OrdersService } from './orders.service';
 import { OrdersController } from './orders.controller';
@@ -6,6 +6,8 @@ import { Order } from './entities/order.entity';
 import { OcsModule } from '../ocs/ocs.module';
 import { PackageTemplateModule } from '../package-template/package-template.module';
 import { UsersModule } from '../users/users.module';
+import { EsimsModule } from '../esims/esims.module';
+import { UsageModule } from '../usage/usage.module';
 
 @Module({
   imports: [
@@ -13,6 +15,8 @@ import { UsersModule } from '../users/users.module';
     OcsModule,
     PackageTemplateModule,
     UsersModule,
+    EsimsModule,
+    forwardRef(() => UsageModule),
   ],
   controllers: [OrdersController],
   providers: [OrdersService],

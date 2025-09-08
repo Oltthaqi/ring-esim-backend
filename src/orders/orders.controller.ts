@@ -18,9 +18,11 @@ import {
   ApiBearerAuth,
   ApiParam,
   ApiQuery,
+  ApiBody,
 } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
 import { CreateOrderDto } from './dto/create-order.dto';
+import { CreateSimpleOrderDto } from './dto/create-simple-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderResponseDto } from './dto/order-response.dto';
 import { TopupOrderDto } from './dto/topup-order.dto';
@@ -45,7 +47,50 @@ interface AuthenticatedRequest extends ExpressRequest {
 export class OrdersController {
   constructor(private readonly ordersService: OrdersService) {}
 
-  @ApiOperation({ summary: 'Create a new eSIM order' })
+  @ApiOperation({
+    summary: 'Create eSIM order (advanced)',
+    description:
+      'Create order with full control over all parameters. For simple orders, use POST /orders/simple instead.',
+  })
+  @ApiBody({
+    type: CreateOrderDto,
+    description: 'Order creation data',
+    examples: {
+      simple: {
+        summary: 'Simple order (recommended approach)',
+        description: 'Basic order with just the essential fields',
+        value: {
+          packageTemplateId: '594193',
+          amount: 1.99,
+          currency: 'EUR',
+        },
+      },
+      withScheduling: {
+        summary: 'Order with custom validity',
+        description: 'Order with custom validity period',
+        value: {
+          packageTemplateId: '594193',
+          amount: 1.99,
+          currency: 'EUR',
+          validityPeriod: 30,
+          activationAtFirstUse: false,
+        },
+      },
+      expertMode: {
+        summary: 'Expert mode (specific eSIM)',
+        description:
+          'Order with pre-selected eSIM details (advanced users only)',
+        value: {
+          packageTemplateId: '594193',
+          amount: 1.99,
+          currency: 'EUR',
+          subscriberId: 28345617,
+          iccid: '894801000050481245',
+          activationCode: 'K2-2KPOHA-9P002H',
+        },
+      },
+    },
+  })
   @ApiResponse({
     status: 201,
     description: 'Order created successfully',
@@ -67,6 +112,62 @@ export class OrdersController {
     }
 
     return this.ordersService.create(userId, createOrderDto);
+  }
+
+  @ApiOperation({
+    summary: 'Create eSIM order (recommended)',
+    description:
+      'Simple order creation that automatically allocates eSIM and processes immediately. This is the recommended endpoint for most use cases.',
+  })
+  @ApiBody({
+    type: CreateSimpleOrderDto,
+    description: 'Simple order data - only 3 fields needed!',
+    examples: {
+      basic: {
+        summary: 'Basic eSIM order',
+        description: 'Standard order with USD currency',
+        value: {
+          packageTemplateId: '594193',
+          amount: 1.99,
+        },
+      },
+      withCurrency: {
+        summary: 'Order with specific currency',
+        description: 'Order with European pricing',
+        value: {
+          packageTemplateId: '594193',
+          amount: 1.99,
+          currency: 'EUR',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Order created and processed successfully',
+    type: OrderResponseDto,
+  })
+  @ApiResponse({
+    status: 400,
+    description: 'Invalid input data or no eSIMs available',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Package template not found' })
+  @Post('simple')
+  @Roles(Role.USER, Role.ADMIN)
+  async createSimpleOrder(
+    @Request() req: AuthenticatedRequest,
+    @Body() createSimpleOrderDto: CreateSimpleOrderDto,
+  ): Promise<OrderResponseDto> {
+    const userId = req.user.uuid || req.user.id;
+    if (!userId) {
+      throw new BadRequestException('User ID not found in JWT token');
+    }
+
+    return await this.ordersService.createSimpleOrder(
+      userId,
+      createSimpleOrderDto,
+    );
   }
 
   @ApiOperation({ summary: 'Get orders for current authenticated user' })
