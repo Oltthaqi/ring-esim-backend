@@ -1,0 +1,24 @@
+### Test Detailed Location Zones Endpoints
+
+### 1. Get detailed location zones for a reseller
+POST http://localhost:3000/zones/detailed
+Content-Type: application/json
+
+{
+  "resellerId": 1
+}
+
+### 2. Get detailed location zones filtered by ISO2 country code (e.g., Italy)
+GET http://localhost:3000/zones/detailed/by-iso2?iso2=IT
+
+### 3. Get detailed location zones filtered by ISO2 country code (e.g., United States)
+GET http://localhost:3000/zones/detailed/by-iso2?iso2=US
+
+### 4. Get detailed location zones filtered by ISO2 country code (e.g., Belgium)
+GET http://localhost:3000/zones/detailed/by-iso2?iso2=BE
+
+### 5. Get detailed location zones for a specific package template
+GET http://localhost:3000/zones/detailed/by-package-template?packageTemplateId=123
+
+### 6. Sync location zones from OCS (existing endpoint)
+POST http://localhost:3000/zones/sync?resellerId=1

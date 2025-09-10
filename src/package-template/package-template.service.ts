@@ -1,13 +1,22 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PackageTemplate } from './entities/package-template.entity';
 import { LocationZoneService } from '../location-zone/location-zone.service';
 import { OcsService } from 'src/ocs/ocs.service';
 import { LocationZone } from '../location-zone/entities/location-zone.entity';
+import {
+  PackageTemplateDetailsDto,
+  PackageTemplateDetailsResponseDto,
+  CountryOperatorDto,
+} from './dto/package-template-details.dto';
+import {
+  ListDetailedLocationZoneResponseDto,
+  DetailedLocationZoneDto,
+} from '../location-zone/dto/list-detailed-location-zone.dto';
 
 type Raw = Record<string, any>;
 interface Normalized {
@@ -155,5 +164,79 @@ export class PackageTemplatesService {
     }
 
     return { saved: rows.length, skipped };
+  }
+
+  /**
+   * Get detailed package template information including countries and operators
+   */
+  async getPackageTemplateDetails(
+    dto: PackageTemplateDetailsDto,
+  ): Promise<PackageTemplateDetailsResponseDto> {
+    // Find the package template
+    const packageTemplate = await this.findOne(dto.packageTemplateId);
+    if (!packageTemplate) {
+      throw new NotFoundException(
+        `Package template with ID ${dto.packageTemplateId} not found`,
+      );
+    }
+
+    // Get detailed location zone information from OCS
+    const detailedZonesResponse =
+      await this.ocs.post<ListDetailedLocationZoneResponseDto>({
+        listDetailedLocationZone: 567, // Default reseller ID
+      });
+
+    if (!detailedZonesResponse.listDetailedLocationZone) {
+      throw new NotFoundException('No detailed location zones found');
+    }
+
+    // Find the specific zone for this package template
+    const packageZone = detailedZonesResponse.listDetailedLocationZone.find(
+      (zone) => zone.zoneId === Number(packageTemplate.zoneId),
+    );
+
+    if (!packageZone) {
+      throw new NotFoundException(
+        `Location zone ${packageTemplate.zoneId} not found in detailed zones`,
+      );
+    }
+
+    // Group operators by country
+    const countryOperatorsMap = new Map<string, CountryOperatorDto>();
+
+    packageZone.operators.forEach((operator) => {
+      const countryIso2 = operator.countryIso2.toLowerCase();
+      const countryName = operator.countryName;
+
+      if (!countryOperatorsMap.has(countryIso2)) {
+        countryOperatorsMap.set(countryIso2, {
+          countryIso2: operator.countryIso2,
+          countryName: countryName,
+          operatorNames: [],
+        });
+      }
+
+      // Add operator name if not already present
+      const countryData = countryOperatorsMap.get(countryIso2)!;
+      if (!countryData.operatorNames.includes(operator.operatorName)) {
+        countryData.operatorNames.push(operator.operatorName);
+      }
+    });
+
+    // Convert map to array
+    const countries: CountryOperatorDto[] = Array.from(
+      countryOperatorsMap.values(),
+    );
+
+    return {
+      packageTemplateId: packageTemplate.packageTemplateId,
+      packageName: packageTemplate.packageTemplateName,
+      price: packageTemplate.price,
+      currency: packageTemplate.currency,
+      usageAllowed: packageTemplate.volume,
+      validityDays: packageTemplate.periodDays,
+      numberOfCountries: countries.length,
+      countries: countries,
+    };
   }
 }

@@ -794,33 +794,12 @@ export class OrdersService {
         allOrderIds.includes(usage.orderId),
       );
 
-      console.log(
-        `🔍 ICCID ${iccid}: Found ${allMatchingTopups.length} total top-ups (including different package templates)`,
-      );
-      allMatchingTopups.forEach((topup) => {
-        console.log(
-          `  - Top-up ${topup.id}: package template ${topup.packageTemplate?.packageTemplateId}`,
-        );
-      });
-
       // Consolidate usage data for the one-time order with ALL its top-ups
       this.consolidateUsageDataForGroup(oneTimeOrder, orderUsageRecords);
       result.push(oneTimeOrder);
     }
 
     // Note: We don't add remaining top-ups as separate entries since we only want to show one-time orders
-    const remainingTopups = topupOrders.filter(
-      (topup) => !processedTopupIds.has(topup.id),
-    );
-
-    console.log(
-      `🔍 Found ${remainingTopups.length} remaining top-ups without corresponding one-time orders (not adding as separate entries)`,
-    );
-    remainingTopups.forEach((topup) => {
-      console.log(
-        `  - Top-up ${topup.id}: ICCID ${topup.iccid}, package template ${topup.packageTemplate?.packageTemplateId}`,
-      );
-    });
 
     return result;
   }

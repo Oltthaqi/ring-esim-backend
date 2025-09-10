@@ -1,0 +1,38 @@
+### Test Package Template Details Endpoint
+
+### Get detailed package template information
+### This will return:
+### - Package name (e.g., "Kosova 3GB")
+### - Price and currency
+### - Usage allowed (e.g., "3GB")
+### - Validity in days
+### - Number of countries
+### - List of countries with their operator names
+
+GET http://localhost:3000/packages/details?packageTemplateId=123
+
+### Example with a different package template ID
+GET http://localhost:3000/packages/details?packageTemplateId=456
+
+### Example response structure:
+### {
+###   "packageTemplateId": "123",
+###   "packageName": "Kosova 3GB",
+###   "price": 15.50,
+###   "currency": "EUR",
+###   "usageAllowed": "3GB",
+###   "validityDays": 30,
+###   "numberOfCountries": 2,
+###   "countries": [
+###     {
+###       "countryIso2": "XK",
+###       "countryName": "Kosovo",
+###       "operatorNames": ["Vala", "IPKO", "Z Mobile"]
+###     },
+###     {
+###       "countryIso2": "AL",
+###       "countryName": "Albania", 
+###       "operatorNames": ["Vodafone Albania", "Telekom Albania"]
+###     }
+###   ]
+### }
