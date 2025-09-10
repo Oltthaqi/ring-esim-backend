@@ -91,6 +91,20 @@ export class UsageService {
   }
 
   /**
+   * Get usage records by ICCID
+   */
+  async getUsageByIccids(iccids: string[]): Promise<Usage[]> {
+    if (iccids.length === 0) {
+      return [];
+    }
+
+    return this.usageRepository.find({
+      where: iccids.map((iccid) => ({ iccid })),
+      relations: ['order', 'order.packageTemplate'],
+    });
+  }
+
+  /**
    * Get usage for authenticated user
    */
   async getUserUsage(

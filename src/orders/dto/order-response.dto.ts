@@ -215,6 +215,25 @@ export class OrderResponseDto {
       isActive: { type: 'boolean', example: true },
       status: { type: 'string', example: 'active' },
       lastSyncedAt: { type: 'string', format: 'date-time' },
+      individualUsage: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'string' },
+            orderId: { type: 'string' },
+            packageTemplateId: { type: 'string', nullable: true },
+            packageTemplateName: { type: 'string', nullable: true },
+            totalDataUsed: { type: 'number' },
+            totalDataAllowed: { type: 'number' },
+            totalDataRemaining: { type: 'number' },
+            usagePercentage: { type: 'number' },
+            isActive: { type: 'boolean' },
+            status: { type: 'string' },
+            lastSyncedAt: { type: 'string', format: 'date-time' },
+          },
+        },
+      },
     },
   })
   usage?: {
@@ -227,5 +246,18 @@ export class OrderResponseDto {
     isActive: boolean;
     status: string;
     lastSyncedAt: Date | null;
+    individualUsage?: {
+      id: string;
+      orderId: string;
+      packageTemplateId: string | null;
+      packageTemplateName: string | null;
+      totalDataUsed: number;
+      totalDataAllowed: number;
+      totalDataRemaining: number;
+      usagePercentage: number;
+      isActive: boolean;
+      status: string;
+      lastSyncedAt: Date | null;
+    }[];
   };
 }

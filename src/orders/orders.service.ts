@@ -18,6 +18,7 @@ import { PackageTemplatesService } from '../package-template/package-template.se
 import { UsersService } from '../users/users.service';
 import { EsimAllocationService } from '../esims/esim-allocation.service';
 import { UsageService } from '../usage/usage.service';
+import { Usage } from '../usage/entities/usage.entity';
 
 @Injectable()
 export class OrdersService {
@@ -298,13 +299,38 @@ export class OrdersService {
     // Validate that user exists
     await this.usersService.getUserById(userId);
 
-    const orders = await this.orderRepository.find({
-      where: { userId },
-      relations: ['packageTemplate', 'usage'],
+    // Get only one-time orders
+    const oneTimeOrders = await this.orderRepository.find({
+      where: {
+        userId,
+        orderType: OrderType.ONE_TIME,
+      },
+      relations: ['packageTemplate'],
       order: { createdAt: 'DESC' },
     });
 
-    return orders.map((order) => this.toResponseDto(order));
+    // Get all top-up orders for the same user
+    const topupOrders = await this.orderRepository.find({
+      where: {
+        userId,
+        orderType: OrderType.TOPUP,
+      },
+      relations: ['packageTemplate'],
+      order: { createdAt: 'DESC' },
+    });
+
+    // Get all usage records for this user's orders
+    const allOrders = [...oneTimeOrders, ...topupOrders];
+    const usageRecords = await this.getUsageRecordsForOrders(allOrders);
+
+    // Group orders by ICCID and package template for usage consolidation
+    const groupedOrders = this.groupOrdersByUsage(
+      oneTimeOrders,
+      topupOrders,
+      usageRecords,
+    );
+
+    return groupedOrders.map((order) => this.toResponseDto(order));
   }
 
   async findOne(id: string): Promise<Order> {
@@ -705,8 +731,227 @@ export class OrdersService {
     return order;
   }
 
+  /**
+   * Get usage records for orders by matching ICCID
+   */
+  private async getUsageRecordsForOrders(orders: Order[]): Promise<Usage[]> {
+    // Get all unique ICCIDs from orders
+    const iccids = orders
+      .map((order) => order.iccid)
+      .filter((iccid) => iccid) // Remove null/undefined values
+      .filter((iccid, index, self) => self.indexOf(iccid) === index); // Remove duplicates
+
+    if (iccids.length === 0) {
+      return [];
+    }
+
+    // Fetch usage records for all ICCIDs using the usage service
+    const usageRecords = await this.usageService.getUsageByIccids(iccids);
+
+    return usageRecords;
+  }
+
+  /**
+   * Group orders by ICCID for usage consolidation
+   * Only shows one-time orders, but consolidates usage with all top-ups for the same ICCID
+   */
+  private groupOrdersByUsage(
+    oneTimeOrders: Order[],
+    topupOrders: Order[],
+    usageRecords: Usage[],
+  ): Order[] {
+    const result: Order[] = [];
+    const processedTopupIds = new Set<string>();
+
+    // Process each one-time order
+    for (const oneTimeOrder of oneTimeOrders) {
+      const iccid = oneTimeOrder.iccid;
+
+      if (!iccid) {
+        // Order without ICCID - add it individually
+        const orderUsageRecords = usageRecords.filter(
+          (usage) => usage.orderId === oneTimeOrder.id,
+        );
+        this.consolidateUsageDataForGroup(oneTimeOrder, orderUsageRecords);
+        result.push(oneTimeOrder);
+        continue;
+      }
+
+      // Find ALL top-up orders for the same ICCID (regardless of package template)
+      const allMatchingTopups = topupOrders.filter(
+        (topup) => topup.iccid === iccid,
+      );
+
+      // Mark all these top-ups as processed
+      allMatchingTopups.forEach((topup) => processedTopupIds.add(topup.id));
+
+      // Get usage records for this one-time order and ALL its top-ups
+      const allOrderIds = [
+        oneTimeOrder.id,
+        ...allMatchingTopups.map((t) => t.id),
+      ];
+      const orderUsageRecords = usageRecords.filter((usage) =>
+        allOrderIds.includes(usage.orderId),
+      );
+
+      console.log(
+        `🔍 ICCID ${iccid}: Found ${allMatchingTopups.length} total top-ups (including different package templates)`,
+      );
+      allMatchingTopups.forEach((topup) => {
+        console.log(
+          `  - Top-up ${topup.id}: package template ${topup.packageTemplate?.packageTemplateId}`,
+        );
+      });
+
+      // Consolidate usage data for the one-time order with ALL its top-ups
+      this.consolidateUsageDataForGroup(oneTimeOrder, orderUsageRecords);
+      result.push(oneTimeOrder);
+    }
+
+    // Note: We don't add remaining top-ups as separate entries since we only want to show one-time orders
+    const remainingTopups = topupOrders.filter(
+      (topup) => !processedTopupIds.has(topup.id),
+    );
+
+    console.log(
+      `🔍 Found ${remainingTopups.length} remaining top-ups without corresponding one-time orders (not adding as separate entries)`,
+    );
+    remainingTopups.forEach((topup) => {
+      console.log(
+        `  - Top-up ${topup.id}: ICCID ${topup.iccid}, package template ${topup.packageTemplate?.packageTemplateId}`,
+      );
+    });
+
+    return result;
+  }
+
+  /**
+   * Consolidate usage data for a group of orders with same ICCID and package template
+   */
+  private consolidateUsageDataForGroup(
+    order: Order,
+    usageRecords: Usage[],
+  ): void {
+    if (usageRecords && usageRecords.length > 0) {
+      if (usageRecords.length === 1) {
+        // Single usage record - show it directly
+        const usage = usageRecords[0];
+        const consolidatedUsage = {
+          id: usage.id,
+          subscriberId: usage.subscriberId,
+          totalDataUsed: Number(usage.totalDataUsed),
+          totalDataAllowed: Number(usage.totalDataAllowed),
+          totalDataRemaining: Number(usage.totalDataRemaining),
+          usagePercentage:
+            usage.totalDataAllowed > 0
+              ? (Number(usage.totalDataUsed) / Number(usage.totalDataAllowed)) *
+                100
+              : 0,
+          isActive: usage.isActive,
+          status: usage.status,
+          lastSyncedAt: usage.lastSyncedAt,
+        };
+        order.usage = [consolidatedUsage as any];
+      } else {
+        // Get the main order's package template ID
+        const mainPackageTemplateId = order.packageTemplate?.packageTemplateId;
+
+        // Filter usage records to only include those with the same package template as the main order
+        const matchingPackageUsageRecords = usageRecords.filter(
+          (usage) =>
+            usage.order?.packageTemplate?.packageTemplateId ===
+            mainPackageTemplateId,
+        );
+
+        // Calculate totals only for matching package template usage records
+        const totalDataUsed = matchingPackageUsageRecords.reduce(
+          (sum, usage) => sum + Number(usage.totalDataUsed),
+          0,
+        );
+        const totalDataAllowed = matchingPackageUsageRecords.reduce(
+          (sum, usage) => sum + Number(usage.totalDataAllowed),
+          0,
+        );
+        const totalDataRemaining = Math.max(
+          0,
+          totalDataAllowed - totalDataUsed,
+        );
+
+        // Sort all usage records by lastUsageDate (latest first, null last)
+        const sortedUsageRecords = [...usageRecords].sort((a, b) => {
+          const dateA = a.lastUsageDate ? new Date(a.lastUsageDate) : null;
+          const dateB = b.lastUsageDate ? new Date(b.lastUsageDate) : null;
+
+          if (!dateA && !dateB) return 0;
+          if (!dateA) return 1; // null dates go to end
+          if (!dateB) return -1; // null dates go to end
+          return dateB.getTime() - dateA.getTime(); // latest first
+        });
+
+        // Create a consolidated usage object
+        const consolidatedUsage = {
+          id: usageRecords[0].id, // Use the first usage ID as reference
+          subscriberId: usageRecords[0].subscriberId,
+          totalDataUsed,
+          totalDataAllowed,
+          totalDataRemaining,
+          usagePercentage:
+            totalDataAllowed > 0 ? (totalDataUsed / totalDataAllowed) * 100 : 0,
+          isActive: usageRecords.some((u) => u.isActive),
+          status: totalDataRemaining <= 0 ? 'exhausted' : 'active',
+          lastSyncedAt: usageRecords.reduce((latest, usage) => {
+            if (!latest || !usage.lastSyncedAt) return latest;
+            if (!usage.lastSyncedAt) return latest;
+            return new Date(usage.lastSyncedAt) > new Date(latest)
+              ? usage.lastSyncedAt
+              : latest;
+          }, usageRecords[0].lastSyncedAt),
+          // Keep individual usage records for detailed breakdown (sorted by lastUsageDate)
+          individualUsage: sortedUsageRecords.map((usage) => ({
+            id: usage.id,
+            orderId: usage.orderId,
+            packageTemplateId:
+              usage.order?.packageTemplate?.packageTemplateId || null,
+            packageTemplateName:
+              usage.order?.packageTemplate?.packageTemplateName || null,
+            totalDataUsed: Number(usage.totalDataUsed),
+            totalDataAllowed: Number(usage.totalDataAllowed),
+            totalDataRemaining: Number(usage.totalDataRemaining),
+            usagePercentage:
+              usage.totalDataAllowed > 0
+                ? (Number(usage.totalDataUsed) /
+                    Number(usage.totalDataAllowed)) *
+                  100
+                : 0,
+            isActive: usage.isActive,
+            status: usage.status,
+            lastSyncedAt: usage.lastSyncedAt,
+          })),
+        };
+
+        // Set the consolidated usage
+        order.usage = [consolidatedUsage as any];
+      }
+    }
+  }
+
+  /**
+   * Consolidate usage data from multiple orders with same ICCID and package template
+   * @deprecated Use consolidateUsageDataForGroup instead
+   */
+  private consolidateUsageData(
+    existingOrder: Order,
+    newOrder: Order,
+    relevantUsageRecords: Usage[],
+  ): void {
+    // This method is deprecated and should not be used
+    console.warn(
+      'consolidateUsageData is deprecated, use consolidateUsageDataForGroup instead',
+    );
+  }
+
   private toResponseDto(order: Order): OrderResponseDto {
-    // Get the first usage record (there should only be one per order)
+    // Get the first usage record (there should only be one per order after consolidation)
     const usage = order.usage && order.usage.length > 0 ? order.usage[0] : null;
 
     return {
@@ -762,6 +1007,8 @@ export class OrdersService {
             isActive: usage.isActive,
             status: usage.status,
             lastSyncedAt: usage.lastSyncedAt,
+            // Include individual usage breakdown if available
+            individualUsage: (usage as any).individualUsage || undefined,
           }
         : undefined,
       createdAt: order.createdAt,
