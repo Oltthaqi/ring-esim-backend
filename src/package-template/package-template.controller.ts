@@ -36,8 +36,9 @@ export class PackageTemplatesController {
   })
   @ApiQuery({
     name: 'packageTemplateId',
-    description: 'Package template ID to get details for',
-    example: '123',
+    description:
+      'Package template ID (UUID) or packageTemplateId (business key) to get details for',
+    example: '980681d4-89d6-4472-b5c5-342706d862a7 or 594277',
     required: true,
     type: String,
   })

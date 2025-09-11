@@ -170,8 +170,14 @@ export class PackageTemplatesService {
   async getPackageTemplateDetails(
     dto: PackageTemplateDetailsDto,
   ): Promise<PackageTemplateDetailsResponseDto> {
-    // Find the package template
-    const packageTemplate = await this.findOne(dto.packageTemplateId);
+    // Find the package template - try by UUID first, then by packageTemplateId
+    let packageTemplate = await this.findOne(dto.packageTemplateId);
+
+    // If not found by UUID, try by packageTemplateId (business key)
+    if (!packageTemplate) {
+      packageTemplate = await this.findByTemplateId(dto.packageTemplateId);
+    }
+
     if (!packageTemplate) {
       throw new NotFoundException(
         `Package template with ID ${dto.packageTemplateId} not found`,
