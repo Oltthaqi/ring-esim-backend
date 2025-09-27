@@ -110,6 +110,8 @@ export class OrdersService {
         await this.processOneTimeOrder(order);
       } else if (order.orderType === OrderType.RECURRING) {
         await this.processRecurringOrder(order);
+      } else if (order.orderType === OrderType.TOPUP) {
+        await this.processTopupOrder(order);
       }
 
       // Update status to completed only if we have activation details
@@ -120,10 +122,10 @@ export class OrdersService {
       // Create usage tracking record for the completed order
       try {
         await this.usageService.createUsageRecord(orderId);
-        console.log(`✅ Usage record created for order ${orderId}`);
+        console.log(` Usage record created for order ${orderId}`);
       } catch (error) {
         console.log(
-          `⚠️ Failed to create usage record for order ${orderId}:`,
+          ` Failed to create usage record for order ${orderId}:`,
           error.message,
         );
         // Don't throw error here as order is already completed successfully
@@ -132,10 +134,10 @@ export class OrdersService {
       // Send order completion email
       try {
         await this.sendOrderCompletionEmail(orderId);
-        console.log(`✅ Order completion email sent for order ${orderId}`);
+        console.log(` Order completion email sent for order ${orderId}`);
       } catch (error) {
         console.log(
-          `⚠️ Failed to send order completion email for order ${orderId}:`,
+          ` Failed to send order completion email for order ${orderId}:`,
           error.message,
         );
         // Don't throw error here as order is already completed successfully
@@ -154,11 +156,11 @@ export class OrdersService {
   private async processOneTimeOrder(order: Order): Promise<void> {
     const requestBody = this.buildAffectPackageRequest(order);
 
-    console.log('🔍 OCS Request:', JSON.stringify(requestBody, null, 2));
+    console.log(' OCS Request:', JSON.stringify(requestBody, null, 2));
 
     try {
       const response = await this.ocsService.post(requestBody);
-      console.log('🔍 OCS Response:', JSON.stringify(response, null, 2));
+      console.log(' OCS Response:', JSON.stringify(response, null, 2));
 
       // Extract response data and update order
       const ocsResponseData = (response as any)?.affectPackageToSubscriber;
@@ -171,7 +173,7 @@ export class OrdersService {
           ocsResponseData.smdpServer
         ) {
           qrCodeUrl = `LPA:1$${ocsResponseData.smdpServer}$${ocsResponseData.activationCode}`;
-          console.log('🔧 Generated QR code from OCS response:', qrCodeUrl);
+          console.log(' Generated QR code from OCS response:', qrCodeUrl);
         }
 
         await this.orderRepository.update(order.id, {
@@ -187,15 +189,15 @@ export class OrdersService {
           userSimName: ocsResponseData.userSimName,
         });
         console.log(
-          '✅ eSIM activation details saved with QR code:',
+          ' eSIM activation details saved with QR code:',
           qrCodeUrl,
         );
       } else {
-        console.log('❌ No affectPackageToSubscriber data in response');
+        console.log(' No affectPackageToSubscriber data in response');
         throw new BadRequestException('OCS API returned empty response');
       }
     } catch (error) {
-      console.log('❌ OCS API Error:', error);
+      console.log(' OCS API Error:', error);
       throw new BadRequestException(
         `Failed to process one-time order: ${error.message}`,
       );
@@ -221,6 +223,62 @@ export class OrdersService {
       throw new BadRequestException(
         `Failed to process recurring order: ${error.message}`,
       );
+    }
+  }
+
+  private async processTopupOrder(order: Order): Promise<void> {
+    if (!order.subscriberId) {
+      throw new BadRequestException(
+        'Subscriber ID is required for top-up orders',
+      );
+    }
+
+    // Build top-up request for OCS API
+    const topupRequest = this.buildTopupRequest(order);
+
+    console.log('🔄 Processing top-up for subscriber:', order.subscriberId);
+    console.log(
+      'Top-up request payload:',
+      JSON.stringify(topupRequest, null, 2),
+    );
+
+    try {
+      // Call OCS API to add package to existing subscriber
+      const response = await this.ocsService.post(topupRequest);
+
+      console.log(' Top-up successful:', JSON.stringify(response, null, 2));
+
+      // Extract response data
+      const topupResponse = (response as any).affectPackageToSubscriber || {};
+
+      // Generate QR code if not provided by OCS
+      let qrCodeUrl = topupResponse.urlQrCode;
+      if (
+        !qrCodeUrl &&
+        topupResponse.activationCode &&
+        topupResponse.smdpServer
+      ) {
+        qrCodeUrl = `LPA:1$${topupResponse.smdpServer}$${topupResponse.activationCode}`;
+        console.log(
+          ' Generated QR code for top-up from OCS response:',
+          qrCodeUrl,
+        );
+      }
+
+      // Update order with success data
+      await this.orderRepository.update(order.id, {
+        ocsResponse: response as any,
+        subsPackageId: topupResponse.subsPackageId?.toString(),
+        esimId: topupResponse.esimId?.toString(),
+        smdpServer: topupResponse.smdpServer,
+        urlQrCode: qrCodeUrl,
+        userSimName: topupResponse.userSimName,
+        iccid: topupResponse.iccid,
+        activationCode: topupResponse.activationCode,
+      });
+    } catch (error: any) {
+      console.log(' Top-up failed:', error);
+      throw new BadRequestException(`Top-up failed: ${error.message}`);
     }
   }
 
