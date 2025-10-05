@@ -7,7 +7,6 @@ import { OcsModule } from '../ocs/ocs.module';
 import { PackageTemplateModule } from '../package-template/package-template.module';
 import { UsersModule } from '../users/users.module';
 import { EsimsModule } from '../esims/esims.module';
-import { EmailModule } from '../email/email.module';
 import { UsageModule } from '../usage/usage.module';
 import { EmailModule } from '../email/email.module';
 

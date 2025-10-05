@@ -34,7 +34,7 @@ import { Order } from '../orders/entities/order.entity';
 
 @ApiTags('Promo Codes')
 @ApiBearerAuth()
-@Controller('api')
+@Controller()
 @UseGuards(AuthGuard('jwt'))
 export class PromoCodesController {
   constructor(
@@ -73,7 +73,8 @@ export class PromoCodesController {
     @Request() req,
   ): Promise<ValidatePromoCodeResponseDto> {
     // Verify order ownership
-    await this.validateOrderOwnership(validateDto.orderId, req.user.id);
+    const userId = req.user.uuid || req.user.id;
+    await this.validateOrderOwnership(validateDto.orderId, userId);
 
     return this.promoCodesService.validatePromoCode(
       validateDto.code,
@@ -100,12 +101,13 @@ export class PromoCodesController {
     @Request() req,
   ): Promise<OrderPricingResponseDto> {
     // Verify order ownership
-    await this.validateOrderOwnership(orderId, req.user.id);
+    const userId = req.user.uuid || req.user.id;
+    await this.validateOrderOwnership(orderId, userId);
 
     return this.promoCodesService.applyPromoCode(
       orderId,
       applyDto.code,
-      req.user.id,
+      userId,
     );
   }
 
@@ -124,9 +126,10 @@ export class PromoCodesController {
     @Request() req,
   ): Promise<OrderPricingResponseDto> {
     // Verify order ownership
-    await this.validateOrderOwnership(orderId, req.user.id);
+    const userId = req.user.uuid || req.user.id;
+    await this.validateOrderOwnership(orderId, userId);
 
-    return this.promoCodesService.removePromoCode(orderId, req.user.id);
+    return this.promoCodesService.removePromoCode(orderId, userId);
   }
 
   @Get('orders/:orderId/pricing')
@@ -143,7 +146,8 @@ export class PromoCodesController {
     @Request() req,
   ): Promise<OrderPricingResponseDto> {
     // Verify order ownership
-    await this.validateOrderOwnership(orderId, req.user.id);
+    const userId = req.user.uuid || req.user.id;
+    await this.validateOrderOwnership(orderId, userId);
 
     return this.promoCodesService.getOrderPricing(orderId);
   }

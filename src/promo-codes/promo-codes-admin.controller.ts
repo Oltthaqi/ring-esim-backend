@@ -28,7 +28,7 @@ import { PromoCodeStatus } from './entities/promo-code.entity';
 
 @ApiTags('Admin - Promo Codes')
 @ApiBearerAuth()
-@Controller('api/admin/promo-codes')
+@Controller('admin/promo-codes')
 @UseGuards(AuthGuard('jwt'), JwtRolesGuard)
 @Roles(Role.ADMIN)
 export class PromoCodesAdminController {
