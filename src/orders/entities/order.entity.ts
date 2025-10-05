@@ -11,6 +11,7 @@ import {
 import { UsersEntity } from '../../users/entitites/users.entity';
 import { PackageTemplate } from '../../package-template/entities/package-template.entity';
 import { Usage } from '../../usage/entities/usage.entity';
+import { PromoCode } from '../../promo-codes/entities/promo-code.entity';
 
 export enum OrderStatus {
   PENDING = 'pending',
@@ -137,6 +138,29 @@ export class Order {
     nullable: true,
   })
   paymentStatus: string;
+
+  // Promo code pricing fields
+  @Column({ type: 'numeric', precision: 12, scale: 2, nullable: true })
+  subtotal_amount: number | null;
+
+  @ManyToOne(() => PromoCode, { nullable: true })
+  @JoinColumn({ name: 'promo_code_id' })
+  promoCode: PromoCode;
+
+  @Column({ type: 'char', length: '36', nullable: true })
+  promo_code_id: string | null;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  promo_code_code: string | null;
+
+  @Column({ type: 'numeric', precision: 5, scale: 2, nullable: true })
+  discount_percent: number | null;
+
+  @Column({ type: 'numeric', precision: 12, scale: 2, default: 0.0 })
+  discount_amount: number;
+
+  @Column({ type: 'numeric', precision: 12, scale: 2, nullable: true })
+  total_amount: number | null;
 
   // Usage tracking relationship
   @OneToMany(() => Usage, (usage) => usage.order)

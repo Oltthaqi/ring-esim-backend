@@ -231,6 +231,13 @@ export class OrderResponseDto {
             isActive: { type: 'boolean' },
             status: { type: 'string' },
             lastSyncedAt: { type: 'string', format: 'date-time' },
+            lastUsageDate: {
+              type: 'string',
+              format: 'date-time',
+              nullable: true,
+            },
+            iccid: { type: 'string', nullable: true },
+            activationCode: { type: 'string', nullable: true },
           },
         },
       },
@@ -258,6 +265,9 @@ export class OrderResponseDto {
       isActive: boolean;
       status: string;
       lastSyncedAt: Date | null;
+      lastUsageDate?: Date | null;
+      iccid?: string | null;
+      activationCode?: string | null;
     }[];
   };
 }

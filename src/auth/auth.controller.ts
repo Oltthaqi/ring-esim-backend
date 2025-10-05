@@ -5,9 +5,9 @@ import {
   Param,
   Patch,
   Post,
-  Req,
   UnauthorizedException,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { VerifyUserDto } from './dto/verify-user.dto';
@@ -24,7 +24,6 @@ import { JwtRolesGuard } from './utils/jwt‑roles.guard';
 import { Roles } from 'src/common/decorators/roles.decorator';
 import { Role } from 'src/users/enums/role.enum';
 import { GoogleAuthGuard } from './utils/google-auth.guard';
-import { Request } from 'express';
 
 @Controller('auth')
 export class AuthController {
@@ -108,9 +107,25 @@ export class AuthController {
 
   @UseGuards(GoogleAuthGuard)
   @Get('google/callback')
-  async googleLoginCallback(@Req() req: Request): Promise<object> {
+  async googleLoginCallback(@Request() req: any): Promise<object> {
     const user = req.user as UsersEntity;
 
     return await this.authService.loginGoogle(user);
+  }
+
+  @UseGuards(JwtRolesGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.USER)
+  @Post('logout')
+  async logout(@Request() req: any): Promise<{ message: string }> {
+    // The JWT is stateless, so we just return a success message
+    // The client should delete the token from their storage
+    // If you're using refresh tokens, you would invalidate them here
+    const userId = req.user?.uuid || req.user?.id;
+    console.log(`User ${userId} logged out`);
+
+    return {
+      message:
+        'Logged out successfully. Please delete your tokens from client storage.',
+    };
   }
 }

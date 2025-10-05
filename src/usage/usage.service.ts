@@ -226,7 +226,7 @@ export class UsageService {
 
         // Status
         isActive: latestUsage.isActive,
-        status: totalDataRemaining <= 0 ? 'exhausted' : 'active',
+        status: totalDataRemaining <= 0 ? 'in active' : 'active',
 
         // Dates
         firstUsageDate: latestUsage.firstUsageDate,
@@ -522,7 +522,7 @@ export class UsageService {
       lastSyncedAt: new Date(),
       lastOcsResponse: ocsData,
       // Update status based on remaining data
-      status: totalDataRemaining <= 0 ? 'exhausted' : 'active',
+      status: totalDataRemaining <= 0 ? 'in-active' : 'active',
       isActive: totalDataRemaining > 0,
     });
 

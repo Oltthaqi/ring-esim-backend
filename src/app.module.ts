@@ -15,6 +15,8 @@ import { DestinationsModule } from './destinations/destinations.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
 import { UsageModule } from './usage/usage.module';
+import { ProfileModule } from './profile/profile.module';
+import { PromoCodesModule } from './promo-codes/promo-codes.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -51,6 +53,8 @@ import { ScheduleModule } from '@nestjs/schedule';
     OrdersModule,
     PaymentsModule,
     UsageModule,
+    ProfileModule,
+    PromoCodesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
