@@ -87,7 +87,7 @@ export class OrderPricingResponseDto {
   } | null;
 
   @ApiProperty()
-  discount_amount: number;
+  discount_from_promo_amount: number;
 
   @ApiProperty()
   total_amount: number;

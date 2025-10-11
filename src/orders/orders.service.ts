@@ -4,6 +4,7 @@ import {
   NotFoundException,
   Inject,
   forwardRef,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -20,9 +21,15 @@ import { EsimAllocationService } from '../esims/esim-allocation.service';
 import { EmailService } from '../email/email.service';
 import { UsageService } from '../usage/usage.service';
 import { Usage } from '../usage/entities/usage.entity';
+import { PromoCodesService } from '../promo-codes/promo-codes.service';
+import { CreditsService } from '../credits/credits.service';
+import { CartService } from '../cart/cart.service';
+import { CreditLedgerType } from '../credits/entities/user-credits-ledger.entity';
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     @InjectRepository(Order)
     private readonly orderRepository: Repository<Order>,
@@ -33,6 +40,9 @@ export class OrdersService {
     private readonly emailService: EmailService,
     @Inject(forwardRef(() => UsageService))
     private readonly usageService: UsageService,
+    private readonly promoCodesService: PromoCodesService,
+    private readonly creditsService: CreditsService,
+    private readonly cartService: CartService,
   ) {}
 
   async create(
@@ -58,15 +68,44 @@ export class OrdersService {
     // Generate unique order number
     const orderNumber = await this.generateOrderNumber();
 
-    // Create order
-    const order = this.orderRepository.create({
-      ...createOrderDto,
+    // Calculate pricing using CartService (includes promo, reward, credits)
+    let pricing: any = null;
+
+    if (
+      createOrderDto.promoCode ||
+      createOrderDto.rewardType ||
+      createOrderDto.creditsToUse
+    ) {
+      pricing = await this.cartService.calculatePricePreview(
+        {
+          subtotal: createOrderDto.amount,
+          currency: createOrderDto.currency || 'USD',
+          promoCode: createOrderDto.promoCode,
+          rewardType: createOrderDto.rewardType as any,
+          creditsToUse: createOrderDto.creditsToUse,
+        },
+        userId,
+      );
+    }
+
+    // Create order (explicitly map fields to avoid DTO fields not in entity)
+    const orderData: any = {
       packageTemplateId: packageTemplate.id, // Use internal database UUID
       orderType: createOrderDto.orderType || OrderType.ONE_TIME,
       userId,
       orderNumber,
       status: OrderStatus.PENDING,
       currency: createOrderDto.currency || 'USD',
+      amount: createOrderDto.amount,
+
+      // Optional fields from DTO
+      subscriberId: createOrderDto.subscriberId,
+      imsi: createOrderDto.imsi,
+      iccid: createOrderDto.iccid,
+      msisdn: createOrderDto.msisdn,
+      activationCode: createOrderDto.activationCode,
+      validityPeriod: createOrderDto.validityPeriod,
+      activationAtFirstUse: createOrderDto.activationAtFirstUse,
       activePeriodStart: createOrderDto.activePeriodStart
         ? new Date(createOrderDto.activePeriodStart)
         : undefined,
@@ -76,14 +115,55 @@ export class OrdersService {
       startTimeUTC: createOrderDto.startTimeUTC
         ? new Date(createOrderDto.startTimeUTC)
         : undefined,
-    });
+    };
 
-    const savedOrder = await this.orderRepository.save(order);
+    // Add pricing fields from CartService if calculated
+    if (pricing) {
+      orderData.subtotal_amount = pricing.subtotal;
+      orderData.promo_code_code = pricing.promo?.code;
+      orderData.promo_percent = pricing.promo?.percent_off;
+      orderData.discount_from_promo_amount = pricing.discount_from_promo;
+      orderData.reward_type = pricing.reward_type;
+      orderData.discount_from_reward_amount = pricing.discount_from_reward;
+      orderData.cashback_to_accrue_amount = pricing.cashback_to_accrue;
+      orderData.credits_applied_amount = pricing.credits_applied;
+      orderData.total_discount_amount = pricing.total_discount;
+      orderData.total_amount = pricing.total_amount;
+      orderData.amount_due_after_credits = pricing.amount_due;
+    } else {
+      orderData.subtotal_amount = createOrderDto.amount;
+      orderData.total_amount = createOrderDto.amount;
+      orderData.amount_due_after_credits = createOrderDto.amount;
+    }
+
+    const order = this.orderRepository.create(orderData);
+
+    // Save and get the ID
+    const result: any = await this.orderRepository.save(order);
+    const savedOrderId = Array.isArray(result) ? result[0].id : result.id;
+
+    // CRITICAL FIX: Create credits reservation AFTER order is saved (so we have real order ID)
+    let reservation: any = null;
+    if (pricing && pricing.credits_applied > 0) {
+      this.logger.log(
+        `Creating credits reservation for order ${savedOrderId}: €${pricing.credits_applied}`,
+      );
+      reservation = await this.creditsService.reserveCredits(
+        userId,
+        savedOrderId, // Use real order ID, not temp
+        pricing.credits_applied,
+      );
+
+      // Link reservation to order
+      await this.orderRepository.update(savedOrderId, {
+        credits_reservation_id: reservation.id,
+      });
+    }
 
     // Process the order immediately
-    // await this.processOrder(savedOrder.id);
+    // await this.processOrder(savedOrderId);
 
-    return this.toResponseDto(await this.findOne(savedOrder.id));
+    return this.toResponseDto(await this.findOne(savedOrderId));
   }
 
   async processOrder(orderId: string): Promise<void> {
@@ -200,10 +280,7 @@ export class OrdersService {
           urlQrCode: qrCodeUrl,
           userSimName: ocsResponseData.userSimName,
         });
-        console.log(
-          ' eSIM activation details saved with QR code:',
-          qrCodeUrl,
-        );
+        console.log(' eSIM activation details saved with QR code:', qrCodeUrl);
       } else {
         console.log(' No affectPackageToSubscriber data in response');
         throw new BadRequestException('OCS API returned empty response');
@@ -1387,5 +1464,301 @@ export class OrdersService {
         message: 'Failed to generate test HTML',
       };
     }
+  }
+
+  /**
+   * Complete order paid fully with credits (zero amount due)
+   */
+  async completeWithCredits(
+    orderId: string,
+    userId: string,
+  ): Promise<OrderResponseDto> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId, userId },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (order.amount_due_after_credits !== 0) {
+      throw new BadRequestException(
+        'Order has amount due - use Stripe payment instead',
+      );
+    }
+
+    if (order.status === OrderStatus.COMPLETED) {
+      // Idempotent - already completed
+      return this.toResponseDto(order);
+    }
+
+    // Convert reservation to debit
+    if (order.credits_reservation_id) {
+      await this.creditsService.convertReservationToDebit(
+        order.credits_reservation_id,
+      );
+    }
+
+    // NOTE: Cashback is NOT accrued here for zero-amount orders
+    // CASHBACK_10 means cashback is applied AFTER payment, so zero-amount orders
+    // should not have CASHBACK_10 reward (they should use DISCOUNT_3 instead)
+    // If order has CASHBACK_10, it means user paid something, so webhook will handle accrual
+
+    if (order.reward_type === 'CASHBACK_10') {
+      this.logger.log(
+        `[COMPLETE_WITH_CREDITS] Order ${order.orderNumber} has CASHBACK_10 - cashback will accrue when payment webhook fires (not in completeWithCredits)`,
+      );
+    }
+
+    // Mark order as completed
+    order.status = OrderStatus.COMPLETED;
+    order.paymentStatus = 'succeeded';
+    await this.orderRepository.save(order);
+
+    // Process eSIM activation if needed
+    // await this.processOrder(orderId);
+
+    return this.toResponseDto(order);
+  }
+
+  /**
+   * Set or change reward type for an order (only if order is still PENDING/OPEN)
+   */
+  async setReward(
+    orderId: string,
+    rewardType: 'NONE' | 'CASHBACK_10' | 'DISCOUNT_3',
+    userId: string,
+  ): Promise<OrderResponseDto> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId, userId },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (
+      order.status !== OrderStatus.PENDING &&
+      order.status !== ('OPEN' as any)
+    ) {
+      throw new BadRequestException('Order is locked - cannot change reward');
+    }
+
+    // Recalculate pricing with new reward
+    const pricing = await this.cartService.calculatePricePreview(
+      {
+        subtotal: order.subtotal_amount || order.amount,
+        currency: order.currency,
+        promoCode: order.promo_code_code || undefined,
+        rewardType: rewardType as any,
+        creditsToUse: order.credits_applied_amount,
+      },
+      userId,
+    );
+
+    // Update order with new pricing
+    order.reward_type = pricing.reward_type;
+    order.discount_from_reward_amount = pricing.discount_from_reward;
+    order.cashback_to_accrue_amount = pricing.cashback_to_accrue;
+    order.total_discount_amount = pricing.total_discount;
+    order.total_amount = pricing.total_amount;
+    order.amount_due_after_credits = pricing.amount_due;
+
+    await this.orderRepository.save(order);
+
+    return this.toResponseDto(order);
+  }
+
+  /**
+   * Apply credits to an order (creates or updates reservation)
+   */
+  async applyCredits(
+    orderId: string,
+    amount: number,
+    userId: string,
+  ): Promise<OrderResponseDto> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId, userId },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Order not found');
+    }
+
+    if (
+      order.status !== OrderStatus.PENDING &&
+      order.status !== ('OPEN' as any)
+    ) {
+      throw new BadRequestException('Order is locked - cannot apply credits');
+    }
+
+    // Release existing reservation if any
+    if (order.credits_reservation_id) {
+      await this.creditsService.releaseReservation(
+        order.credits_reservation_id,
+      );
+      order.credits_reservation_id = null;
+    }
+
+    // Calculate new pricing with credits
+    const pricing = await this.cartService.calculatePricePreview(
+      {
+        subtotal: order.subtotal_amount || order.amount,
+        currency: order.currency,
+        promoCode: order.promo_code_code || undefined,
+        rewardType: order.reward_type as any,
+        creditsToUse: amount,
+      },
+      userId,
+    );
+
+    // Create new reservation if credits applied
+    let reservation: any = null;
+    if (pricing.credits_applied > 0) {
+      reservation = await this.creditsService.reserveCredits(
+        userId,
+        orderId,
+        pricing.credits_applied,
+      );
+    }
+
+    // Update order
+    order.credits_applied_amount = pricing.credits_applied;
+    order.credits_reservation_id = reservation?.id || null;
+    order.amount_due_after_credits = pricing.amount_due;
+
+    await this.orderRepository.save(order);
+
+    return this.toResponseDto(order);
+  }
+
+  /**
+   * Handle successful payment from Stripe webhook
+   * @param orderId - The order ID
+   * @param stripePaymentIntentId - Stripe Payment Intent ID for idempotency
+   */
+  async handlePaymentSuccess(
+    orderId: string,
+    stripePaymentIntentId?: string,
+  ): Promise<void> {
+    this.logger.log(
+      `Processing payment success for order ${orderId}, PI: ${stripePaymentIntentId || 'none'}`,
+    );
+
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+    });
+
+    if (!order) {
+      this.logger.error(`Order ${orderId} not found`);
+      return;
+    }
+
+    if (order.status === OrderStatus.COMPLETED) {
+      this.logger.log(
+        `Order ${orderId} already completed (idempotent webhook retry)`,
+      );
+      return; // Idempotent - webhook already processed
+    }
+
+    // 1. Convert credits reservation to debit (if any)
+    if (order.credits_reservation_id) {
+      this.logger.log(
+        `Converting credits reservation ${order.credits_reservation_id} for order ${orderId}`,
+      );
+      await this.creditsService.convertReservationToDebit(
+        order.credits_reservation_id,
+        stripePaymentIntentId,
+      );
+    }
+
+    // 2. If cashback reward, add credits (idempotent via PI ID)
+    if (
+      order.reward_type === 'CASHBACK_10' &&
+      order.cashback_to_accrue_amount > 0
+    ) {
+      // CRITICAL: Ensure cashback amount is a number
+      const cashbackAmount = Number(order.cashback_to_accrue_amount);
+      const currency = (order.currency || 'EUR').toUpperCase();
+
+      // Entry log with exact format requested
+      this.logger.log(
+        `[CASHBACK] start user=${order.userId} order=${order.orderNumber} currency=${currency} reward=${order.reward_type} decAmount=${cashbackAmount} typeof=${typeof cashbackAmount}`,
+      );
+
+      if (isNaN(cashbackAmount) || cashbackAmount <= 0) {
+        this.logger.error(
+          `[CASHBACK ERROR] Invalid cashback amount: ${order.cashback_to_accrue_amount}`,
+        );
+        throw new Error(
+          `Invalid cashback amount for order ${orderId}: ${order.cashback_to_accrue_amount}`,
+        );
+      }
+
+      await this.creditsService.addCredits(
+        order.userId,
+        cashbackAmount,
+        CreditLedgerType.CREDIT,
+        orderId,
+        `10% Cashback from order ${order.orderNumber}`,
+        stripePaymentIntentId, // Idempotency key
+      );
+
+      this.logger.log(
+        `[CASHBACK] Successfully processed for order ${order.orderNumber}`,
+      );
+    } else if (order.reward_type === 'CASHBACK_10') {
+      this.logger.warn(
+        `[CASHBACK] Order ${order.orderNumber} has CASHBACK_10 but cashback_to_accrue_amount is ${order.cashback_to_accrue_amount} (should be > 0)`,
+      );
+    }
+
+    // 3. Mark order completed
+    order.status = OrderStatus.COMPLETED;
+    order.paymentStatus = 'succeeded';
+    await this.orderRepository.save(order);
+
+    this.logger.log(
+      `[FULFILLMENT] Order ${orderId} marked as COMPLETED, starting fulfillment`,
+    );
+
+    // 4. Process eSIM activation, send emails, sync usage
+    try {
+      await this.processOrder(orderId);
+      this.logger.log(`[FULFILLMENT] Successfully processed order ${orderId}`);
+    } catch (error) {
+      this.logger.error(
+        `[FULFILLMENT] Failed to process order ${orderId}: ${error.message}`,
+        error.stack,
+      );
+      // Don't throw - order is already marked COMPLETED and cashback accrued
+      // Fulfillment can be retried manually if needed
+    }
+  }
+
+  /**
+   * Handle failed/expired payment
+   */
+  async handlePaymentFailed(orderId: string): Promise<void> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+    });
+
+    if (!order) {
+      return;
+    }
+
+    // Release credits reservation
+    if (order.credits_reservation_id) {
+      await this.creditsService.releaseReservation(
+        order.credits_reservation_id,
+      );
+      order.credits_reservation_id = null;
+    }
+
+    // Update order status
+    order.paymentStatus = 'failed';
+    // Optionally set order status to FAILED or EXPIRED
+    await this.orderRepository.save(order);
   }
 }

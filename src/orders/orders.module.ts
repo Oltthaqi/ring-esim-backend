@@ -9,6 +9,9 @@ import { UsersModule } from '../users/users.module';
 import { EsimsModule } from '../esims/esims.module';
 import { UsageModule } from '../usage/usage.module';
 import { EmailModule } from '../email/email.module';
+import { PromoCodesModule } from '../promo-codes/promo-codes.module';
+import { CreditsModule } from '../credits/credits.module';
+import { CartModule } from '../cart/cart.module';
 
 @Module({
   imports: [
@@ -18,6 +21,9 @@ import { EmailModule } from '../email/email.module';
     UsersModule,
     EsimsModule,
     EmailModule,
+    PromoCodesModule,
+    CreditsModule,
+    CartModule,
     forwardRef(() => UsageModule),
   ],
   controllers: [OrdersController],

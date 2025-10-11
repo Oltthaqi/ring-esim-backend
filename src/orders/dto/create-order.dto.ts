@@ -136,4 +136,32 @@ export class CreateOrderDto {
   @IsBoolean()
   @IsOptional()
   activationAtFirstUse?: boolean;
+
+  // Pricing: Promo, Reward, Credits
+  @ApiPropertyOptional({
+    description: 'Promo code to apply',
+    example: 'SUMMER10',
+  })
+  @IsString()
+  @IsOptional()
+  promoCode?: string;
+
+  @ApiPropertyOptional({
+    description: 'Reward type to apply',
+    enum: ['NONE', 'CASHBACK_10', 'DISCOUNT_3'],
+    example: 'CASHBACK_10',
+    default: 'NONE',
+  })
+  @IsString()
+  @IsOptional()
+  rewardType?: string;
+
+  @ApiPropertyOptional({
+    description: 'Amount of credits to apply to this order',
+    example: 10.0,
+    minimum: 0,
+  })
+  @IsNumber()
+  @IsOptional()
+  creditsToUse?: number;
 }

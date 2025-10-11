@@ -130,7 +130,12 @@ export class ProfileService {
       item:
         order.packageTemplate?.packageTemplateName ||
         `Order ${order.orderNumber}`,
-      price: Number(order.amount || 0),
+      price: Number(
+        order.amount_due_after_credits ??
+          order.total_amount ??
+          order.amount ??
+          0,
+      ),
       date: order.createdAt,
       status: order.status,
     }));

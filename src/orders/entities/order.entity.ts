@@ -156,11 +156,43 @@ export class Order {
   @Column({ type: 'numeric', precision: 5, scale: 2, nullable: true })
   discount_percent: number | null;
 
-  @Column({ type: 'numeric', precision: 12, scale: 2, default: 0.0 })
-  discount_amount: number;
-
   @Column({ type: 'numeric', precision: 12, scale: 2, nullable: true })
   total_amount: number | null;
+
+  // Reward fields
+  @Column({
+    type: 'enum',
+    enum: ['NONE', 'CASHBACK_10', 'DISCOUNT_3'],
+    default: 'NONE',
+    nullable: true,
+  })
+  reward_type: string;
+
+  @Column({ type: 'numeric', precision: 12, scale: 2, default: 0.0 })
+  discount_from_reward_amount: number;
+
+  @Column({ type: 'numeric', precision: 12, scale: 2, default: 0.0 })
+  cashback_to_accrue_amount: number;
+
+  // Credits fields
+  @Column({ type: 'numeric', precision: 12, scale: 2, default: 0.0 })
+  credits_applied_amount: number;
+
+  @Column({ type: 'char', length: '36', nullable: true })
+  credits_reservation_id: string | null;
+
+  // Total fields
+  @Column({ type: 'numeric', precision: 12, scale: 2, default: 0.0 })
+  total_discount_amount: number;
+
+  @Column({ type: 'numeric', precision: 12, scale: 2, nullable: true })
+  amount_due_after_credits: number | null;
+
+  @Column({ type: 'numeric', precision: 5, scale: 2, nullable: true })
+  promo_percent: number | null;
+
+  @Column({ type: 'numeric', precision: 12, scale: 2, default: 0.0 })
+  discount_from_promo_amount: number;
 
   // Usage tracking relationship
   @OneToMany(() => Usage, (usage) => usage.order)

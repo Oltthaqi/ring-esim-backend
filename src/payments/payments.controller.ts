@@ -8,6 +8,7 @@ import {
   Headers,
   RawBodyRequest,
   Req,
+  SetMetadata,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -141,20 +142,25 @@ export class PaymentsController {
       );
     }
 
-    // Get the order and process it (trigger eSIM purchase or top-up)
+    // Get the order
     const orderId = paymentIntent.metadata.orderId;
-    const order = await this.ordersService.findOne(orderId);
 
-    // Process based on order type
-    if (order.orderType === 'topup') {
-      // Update order status to processing and trigger top-up
-      await this.ordersService.processTopup(orderId);
-    } else {
-      // Update order status to processing and trigger eSIM purchase
-      await this.ordersService.processOrderAfterPayment(orderId);
-    }
+    console.log(
+      `[PAYMENTS/CONFIRM] Processing successful payment for order ${orderId}, PI: ${paymentIntent.id}`,
+    );
+
+    // CRITICAL FIX: Call handlePaymentSuccess (same as webhook)
+    // This converts reservations, accrues cashback, and fulfills the order
+    await this.ordersService.handlePaymentSuccess(
+      orderId,
+      paymentIntent.id, // Idempotency key
+    );
 
     const updatedOrder = await this.ordersService.findOne(orderId);
+
+    console.log(
+      `[PAYMENTS/CONFIRM] ✅ Order ${orderId} completed via /confirm endpoint`,
+    );
 
     return {
       success: true,
@@ -171,23 +177,65 @@ export class PaymentsController {
   ) {
     const payload = req.rawBody?.toString() || '';
 
+    console.log(
+      `[WEBHOOK] Received Stripe webhook, signature present: ${!!signature}`,
+    );
+
     try {
       const event = this.paymentsService.validateWebhookSignature(
         payload,
         signature,
       );
 
+      const eventObject = event.data.object as any;
+      console.log(
+        `[WEBHOOK] Received event type=${event.type} id=${eventObject.id || 'unknown'}`,
+      );
+
       switch (event.type) {
         case 'payment_intent.succeeded':
           // Handle successful payment
-          console.log('Payment succeeded:', event.data.object);
+          const paymentIntent = event.data.object as any;
+          console.log(
+            `[WEBHOOK] payment_intent.succeeded: pi=${paymentIntent.id} status=${paymentIntent.status} amount=${paymentIntent.amount}`,
+          );
+
+          if (paymentIntent.metadata?.orderId) {
+            console.log(
+              `[WEBHOOK] Processing order ${paymentIntent.metadata.orderId} for PI ${paymentIntent.id}`,
+            );
+
+            // Convert credits reservation, issue cashback, mark order completed, fulfill eSIM
+            await this.ordersService.handlePaymentSuccess(
+              paymentIntent.metadata.orderId,
+              paymentIntent.id, // Stripe Payment Intent ID
+            );
+
+            console.log(
+              `[WEBHOOK] ✅ Order ${paymentIntent.metadata.orderId} completed (PI: ${paymentIntent.id})`,
+            );
+          } else {
+            console.log(
+              `[WEBHOOK] ⚠️ No orderId in metadata for PI ${paymentIntent.id}`,
+            );
+          }
           break;
         case 'payment_intent.payment_failed':
           // Handle failed payment
-          console.log('Payment failed:', event.data.object);
+          console.log('❌ Payment failed:', event.data.object.id);
+          const failedIntent = event.data.object as any;
+          if (failedIntent.metadata?.orderId) {
+            // Release credits reservation
+            await this.ordersService.handlePaymentFailed(
+              failedIntent.metadata.orderId,
+            );
+            console.log(
+              `🔄 Credits reservation released for order ${failedIntent.metadata.orderId} (PI: ${failedIntent.id})`,
+            );
+          }
           break;
         default:
-          console.log(`Unhandled event type: ${event.type}`);
+          console.log(`ℹ️ Unhandled event type: ${event.type}`);
       }
 
       return { received: true };
@@ -195,4 +243,7 @@ export class PaymentsController {
       throw new BadRequestException(`Webhook error: ${error.message}`);
     }
   }
+
+  // NOTE: Duplicate webhook method above is kept for backward compatibility
+  // but StripeWebhookController (no auth) is the primary webhook handler
 }

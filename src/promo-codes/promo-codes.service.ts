@@ -342,7 +342,7 @@ export class PromoCodesService {
     this.logger.log(
       `Applying promo code '${promoCode.code}' to order ${orderId} by user ${userId}. ` +
         `Old total: ${order.total_amount || order.subtotal_amount}, ` +
-        `Old discount: ${order.discount_amount || 0}`,
+        `Old discount: ${order.discount_from_promo_amount || 0}`,
     );
 
     // Compute discount
@@ -359,7 +359,7 @@ export class PromoCodesService {
     order.promo_code_id = promoCode.id;
     order.promo_code_code = promoCode.code;
     order.discount_percent = Number(promoCode.percent_off);
-    order.discount_amount = discountAmount;
+    order.discount_from_promo_amount = discountAmount;
     order.total_amount = totalAmount;
 
     const updated = await this.orderRepository.save(order);
@@ -397,14 +397,14 @@ export class PromoCodesService {
     this.logger.log(
       `Removing promo code from order ${orderId} by user ${userId}. ` +
         `Old code: ${order.promo_code_code || 'none'}, ` +
-        `Old discount: ${order.discount_amount || 0}`,
+        `Old discount: ${order.discount_from_promo_amount || 0}`,
     );
 
     // Clear promo fields
     order.promo_code_id = null;
     order.promo_code_code = null;
     order.discount_percent = null;
-    order.discount_amount = 0;
+    order.discount_from_promo_amount = 0;
     order.total_amount = Number(order.subtotal_amount || order.amount);
 
     const updated = await this.orderRepository.save(order);
@@ -453,7 +453,7 @@ export class PromoCodesService {
             percent: Number(order.discount_percent),
           }
         : null,
-      discount_amount: Number(order.discount_amount || 0),
+      discount_from_promo_amount: Number(order.discount_from_promo_amount || 0),
       total_amount: Number(
         order.total_amount || order.subtotal_amount || order.amount,
       ),

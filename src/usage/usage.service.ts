@@ -78,10 +78,20 @@ export class UsageService {
    * Get usage for a specific order
    */
   async getUsageByOrderId(orderId: string): Promise<UsageResponseDto> {
-    const usage = await this.usageRepository.findOne({
-      where: { orderId },
-      relations: ['order'],
-    });
+    // Use QueryBuilder to avoid selecting non-existent columns
+    const usage = await this.usageRepository
+      .createQueryBuilder('usage')
+      .leftJoin('usage.order', 'order')
+      .addSelect([
+        'order.id',
+        'order.orderNumber',
+        'order.userId',
+        'order.status',
+        'order.amount',
+        'order.currency',
+      ])
+      .where('usage.orderId = :orderId', { orderId })
+      .getOne();
 
     if (!usage) {
       throw new NotFoundException('Usage record not found for this order');
@@ -540,10 +550,22 @@ export class UsageService {
       'Starting scheduled usage sync for all active subscriptions',
     );
 
-    const activeUsageRecords = await this.usageRepository.find({
-      where: { isActive: true },
-      relations: ['order'],
-    });
+    // Use QueryBuilder to explicitly select only existing order columns
+    const activeUsageRecords = await this.usageRepository
+      .createQueryBuilder('usage')
+      .leftJoin('usage.order', 'order')
+      .addSelect([
+        'order.id',
+        'order.orderNumber',
+        'order.userId',
+        'order.status',
+        'order.subscriberId',
+        'order.iccid',
+        'order.imsi',
+        'order.msisdn',
+      ])
+      .where('usage.isActive = :isActive', { isActive: true })
+      .getMany();
 
     this.logger.log(
       `Found ${activeUsageRecords.length} active usage records to sync`,
