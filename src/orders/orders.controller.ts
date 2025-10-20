@@ -11,6 +11,7 @@ import {
   BadRequestException,
   UseInterceptors,
   UploadedFile,
+  Headers,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request as ExpressRequest } from 'express';
@@ -28,6 +29,7 @@ import { CreateOrderDto } from './dto/create-order.dto';
 import { CreateSimpleOrderDto } from './dto/create-simple-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderResponseDto } from './dto/order-response.dto';
+import { CompleteWithCreditsDto } from './dto/complete-with-credits.dto';
 import { TopupOrderDto } from './dto/topup-order.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { Roles } from '../auth/utils/roles.decorator';
@@ -492,23 +494,30 @@ export class OrdersController {
   })
   @ApiResponse({
     status: 200,
-    description: 'Order completed',
-    type: OrderResponseDto,
+    description: 'Order completed successfully with credits',
   })
   @ApiResponse({
-    status: 400,
-    description: 'Order has amount due or already completed',
+    status: 409,
+    description: 'Order requires external payment (Stripe)',
   })
   @ApiResponse({ status: 404, description: 'Order not found' })
   @Roles(Role.USER, Role.ADMIN)
   async completeWithCredits(
     @Param('orderId') orderId: string,
+    @Body() dto: CompleteWithCreditsDto,
     @Request() req: AuthenticatedRequest,
-  ): Promise<OrderResponseDto> {
+    @Headers('idempotency-key') idempotencyKey?: string,
+  ): Promise<any> {
+    console.log('completeWithCredits', orderId, dto, idempotencyKey);
     const userId = req.user.uuid || req.user.id;
     if (!userId) {
       throw new BadRequestException('User ID not found');
     }
-    return this.ordersService.completeWithCredits(orderId, userId);
+    return this.ordersService.completeWithCredits(
+      orderId,
+      userId,
+      idempotencyKey,
+      dto,
+    );
   }
 }

@@ -221,17 +221,14 @@
         <p class='qr-instructions'>Skanoni këtë kod QR me pajisjen tuaj për të
           instaluar kartelën eSIM:</p>
         <div class='qr-code-container'>
-          {{#if qrCodeUrl}}
-            <img src='{{qrCodeUrl}}' alt='Kodi QR i eSIM-it' class='qr-code' />
-            <p style='font-size: 12px; color: #666; margin-top: 10px;'>
-              QR Code Image Generated ({{qrCodeUrl.length}}
-              characters)
-            </p>
+          {{#if hasQrImage}}
+            <img
+              src='cid:{{qrCodeCid}}'
+              alt='Kodi QR i eSIM-it'
+              class='qr-code'
+            />
           {{else}}
             <div class='qr-code-text'>{{qrCodeText}}</div>
-            <p style='font-size: 12px; color: #666; margin-top: 10px;'>
-              QR Code Text Fallback
-            </p>
           {{/if}}
         </div>
       </div>

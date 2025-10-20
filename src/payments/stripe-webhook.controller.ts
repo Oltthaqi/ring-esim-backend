@@ -5,6 +5,7 @@ import {
   RawBodyRequest,
   Req,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiExcludeEndpoint } from '@nestjs/swagger';
 import { Request as ExpressRequest } from 'express';
@@ -18,6 +19,8 @@ import { OrdersService } from '../orders/orders.service';
 @ApiTags('Stripe Webhooks')
 @Controller('payments')
 export class StripeWebhookController {
+  private readonly logger = new Logger(StripeWebhookController.name);
+
   constructor(
     private readonly paymentsService: PaymentsService,
     private readonly ordersService: OrdersService,
@@ -34,12 +37,8 @@ export class StripeWebhookController {
   ) {
     const payload = req.rawBody?.toString() || '';
 
-    console.log(
-      `[WEBHOOK] Received Stripe webhook, signature present: ${!!signature}, payload length: ${payload.length}`,
-    );
-
     if (!signature) {
-      console.log('[WEBHOOK] ❌ Missing stripe-signature header');
+      this.logger.error('Webhook received without stripe-signature header');
       throw new BadRequestException('Missing stripe-signature header');
     }
 
@@ -51,20 +50,17 @@ export class StripeWebhookController {
       );
 
       const eventObject = event.data.object as any;
-      console.log(
-        `[WEBHOOK] ✅ Signature valid - event type=${event.type} id=${eventObject.id || 'unknown'}`,
+      this.logger.log(
+        `Webhook received: ${event.type} (${eventObject.id || 'unknown'})`,
       );
 
       switch (event.type) {
         case 'payment_intent.succeeded':
           const paymentIntent = event.data.object as any;
-          console.log(
-            `[WEBHOOK] payment_intent.succeeded: pi=${paymentIntent.id} status=${paymentIntent.status} amount=${paymentIntent.amount} currency=${paymentIntent.currency}`,
-          );
 
           if (paymentIntent.metadata?.orderId) {
-            console.log(
-              `[WEBHOOK] Processing order ${paymentIntent.metadata.orderId} for PI ${paymentIntent.id}`,
+            this.logger.log(
+              `Processing payment success for order ${paymentIntent.metadata.orderId}`,
             );
 
             // SINGLE FINALIZE FUNCTION: converts reservations + accrues cashback + fulfills order
@@ -73,39 +69,39 @@ export class StripeWebhookController {
               paymentIntent.id, // Stripe Payment Intent ID for idempotency
             );
 
-            console.log(
-              `[WEBHOOK] ✅ Order ${paymentIntent.metadata.orderId} completed (PI: ${paymentIntent.id})`,
+            this.logger.log(
+              `Order ${paymentIntent.metadata.orderId} completed successfully`,
             );
           } else {
-            console.log(
-              `[WEBHOOK] ⚠️ No orderId in metadata for PI ${paymentIntent.id}`,
+            this.logger.warn(
+              `No orderId in metadata for PI ${paymentIntent.id}`,
             );
           }
           break;
 
         case 'payment_intent.payment_failed':
           const failedIntent = event.data.object as any;
-          console.log(
-            `[WEBHOOK] ❌ payment_intent.payment_failed: pi=${failedIntent.id}`,
-          );
 
           if (failedIntent.metadata?.orderId) {
+            this.logger.log(
+              `Processing payment failure for order ${failedIntent.metadata.orderId}`,
+            );
             await this.ordersService.handlePaymentFailed(
               failedIntent.metadata.orderId,
-            );
-            console.log(
-              `[WEBHOOK] Released reservation for order ${failedIntent.metadata.orderId}`,
             );
           }
           break;
 
         default:
-          console.log(`[WEBHOOK] ℹ️ Unhandled event type: ${event.type}`);
+          this.logger.debug(`Unhandled webhook event type: ${event.type}`);
       }
 
       return { received: true };
     } catch (error) {
-      console.log(`[WEBHOOK] ❌ Error processing webhook: ${error.message}`);
+      this.logger.error(
+        `Webhook processing error: ${error.message}`,
+        error.stack,
+      );
       throw new BadRequestException(`Webhook error: ${error.message}`);
     }
   }

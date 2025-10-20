@@ -42,8 +42,6 @@ export class AuthController {
     @Param('user_id') user_id: string,
     @Body() verifyUserDto: VerifyUserDto,
   ): Promise<boolean> {
-    console.log('Verifying user:', user_id);
-
     return await this.authService.verifyUser(user_id, verifyUserDto);
   }
 
@@ -121,7 +119,6 @@ export class AuthController {
     // The client should delete the token from their storage
     // If you're using refresh tokens, you would invalidate them here
     const userId = req.user?.uuid || req.user?.id;
-    console.log(`User ${userId} logged out`);
 
     return {
       message:

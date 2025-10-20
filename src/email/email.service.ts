@@ -27,13 +27,17 @@ export class EmailService {
   }
 
   async sendEmail(
-    sendEmailDTO: SendEmailDTO,
+    sendEmailDTO: SendEmailDTO & {
+      attachments?: SMTPTransport.Attachment[];
+    },
   ): Promise<SMTPTransport.SentMessageInfo> {
     const mailOptions: SMTPTransport.Options = {
       from: this.configService.get<string>('SMTP_EMAIL', ''),
       to: sendEmailDTO.to,
       subject: sendEmailDTO.subject,
       html: sendEmailDTO.body,
+      // Let Nodemailer set multipart headers automatically
+      attachments: sendEmailDTO.attachments,
     };
 
     // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
@@ -97,75 +101,64 @@ export class EmailService {
     const source = await fsPromises.readFile(templatePath, 'utf-8');
     const template = handlebars.compile(source);
 
-    // Generate QR code image if we have QR code text but no URL
-    let qrCodeImageUrl = orderData.qrCodeUrl;
-    console.log('🔍 Email service QR code data:', {
-      qrCodeUrl: orderData.qrCodeUrl,
-      qrCodeText: orderData.qrCodeText,
-      hasText: !!orderData.qrCodeText,
-    });
-
-    if (!qrCodeImageUrl && orderData.qrCodeText) {
+    // Generate QR code as PNG buffer for inline attachment
+    let qrPngBuffer: Buffer | null = null;
+    if (orderData.qrCodeText) {
       try {
-        console.log(
-          '🔧 Generating QR code image from text:',
-          orderData.qrCodeText,
-        );
-        console.log('🔧 Text length:', orderData.qrCodeText.length);
-        console.log('🔧 Text type:', typeof orderData.qrCodeText);
-
-        // Generate QR code as data URL
-        qrCodeImageUrl = await QRCode.toDataURL(orderData.qrCodeText, {
-          width: 200,
+        qrPngBuffer = await QRCode.toBuffer(orderData.qrCodeText, {
+          width: 250,
           margin: 2,
           color: {
             dark: '#000000',
             light: '#FFFFFF',
           },
+          errorCorrectionLevel: 'M',
         });
-        console.log(
-          '✅ Generated QR code image successfully, length:',
-          qrCodeImageUrl.length,
-        );
-        console.log(
-          '✅ QR code data URL starts with:',
-          qrCodeImageUrl.substring(0, 50) + '...',
-        );
       } catch (error) {
-        console.log('❌ Failed to generate QR code image:', error);
-        console.log('❌ Error details:', error.message);
+        console.error(
+          `Failed to generate QR code for order ${orderData.orderNumber}: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
-    } else {
-      console.log('⚠️ Not generating QR code image:', {
-        hasUrl: !!qrCodeImageUrl,
-        hasText: !!orderData.qrCodeText,
-      });
     }
 
-    const templateData = {
+    // Prepare template data with CID reference
+    const html = template({
       orderNumber: orderData.orderNumber,
       packageName: orderData.packageName,
       dataVolume: orderData.dataVolume,
       validityDays: orderData.validityDays,
       amount: orderData.amount,
       currency: orderData.currency,
-      qrCodeUrl: qrCodeImageUrl,
-      qrCodeText: orderData.qrCodeText,
       logoUrl: orderData.logoUrl,
-    };
-
-    console.log('🔍 Template data for email:', {
-      qrCodeUrl: templateData.qrCodeUrl ? 'Present' : 'Missing',
-      qrCodeText: templateData.qrCodeText ? 'Present' : 'Missing',
-      logoUrl: templateData.logoUrl ? 'Present' : 'Missing',
+      hasQrImage: !!qrPngBuffer,
+      qrCodeCid: 'qrCodeImage',
+      qrCodeText: orderData.qrCodeText,
     });
 
-    const html = template(templateData);
+    const attachments: SMTPTransport.Attachment[] = qrPngBuffer
+      ? [
+          {
+            filename: 'qrcode.png',
+            content: qrPngBuffer,
+            contentType: 'image/png',
+            cid: 'qrCodeImage',
+            encoding: 'base64',
+          },
+        ]
+      : [];
+
+    if (attachments.length > 0) {
+      const firstAttachment = attachments[0] as {
+        cid?: string;
+        filename?: string;
+      };
+    }
 
     return this.sendEmail({
       to: email,
       subject: 'Kartela juaj eSIM është gati!',
       body: html,
+      attachments,
     });
   }
 

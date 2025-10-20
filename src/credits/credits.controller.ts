@@ -6,18 +6,25 @@ import {
   Request,
   Param,
   Body,
+  Headers,
 } from '@nestjs/common';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiHeader,
 } from '@nestjs/swagger';
 import { AuthGuard } from '@nestjs/passport';
 import { JwtRolesGuard } from '../auth/utils/jwt‑roles.guard';
 import { Roles } from '../auth/utils/roles.decorator';
 import { Role } from '../users/enums/role.enum';
 import { CreditsService } from './credits.service';
+import { CreateReservationDto } from './dto/create-reservation.dto';
+import { ConfirmReservationDto } from './dto/confirm-reservation.dto';
+import { CancelReservationDto } from './dto/cancel-reservation.dto';
+import { CreateRefundDto } from './dto/create-refund.dto';
+import { AdminRefundDto } from './dto/admin-refund.dto';
 
 @ApiTags('Credits')
 @ApiBearerAuth()
@@ -60,6 +67,117 @@ export class CreditsController {
     const reservations =
       await this.creditsService.getActiveReservations(userId);
     return { reservations };
+  }
+
+  @Post('reservations')
+  @ApiOperation({ summary: 'Create a credit reservation' })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    description: 'Unique key for idempotent requests',
+    required: true,
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Reservation created successfully',
+  })
+  async createReservation(
+    @Request() req,
+    @Body() dto: CreateReservationDto,
+    @Headers('idempotency-key') idempotencyKey: string,
+  ) {
+    if (!idempotencyKey) {
+      return {
+        error: 'Idempotency-Key header is required',
+        status: 400,
+      };
+    }
+    const userId = req.user.uuid || req.user.id;
+    return await this.creditsService.createReservationWithIdempotency(
+      userId,
+      dto.amount,
+      dto.currency || 'EUR',
+      idempotencyKey,
+      dto.orderId,
+      dto.note,
+      dto.expiresInSeconds,
+    );
+  }
+
+  @Post('reservations/:reservationId/confirm')
+  @ApiOperation({ summary: 'Confirm a credit reservation' })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    description: 'Unique key for idempotent requests',
+    required: true,
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Reservation confirmed successfully',
+  })
+  async confirmReservation(
+    @Param('reservationId') reservationId: string,
+    @Body() dto: ConfirmReservationDto,
+    @Headers('idempotency-key') idempotencyKey: string,
+  ) {
+    if (!idempotencyKey) {
+      return {
+        error: 'Idempotency-Key header is required',
+        status: 400,
+      };
+    }
+    return await this.creditsService.confirmReservationWithIdempotency(
+      reservationId,
+      dto.orderId,
+      idempotencyKey,
+    );
+  }
+
+  @Post('reservations/:reservationId/cancel')
+  @ApiOperation({ summary: 'Cancel a credit reservation' })
+  @ApiResponse({
+    status: 200,
+    description: 'Reservation canceled successfully',
+  })
+  async cancelReservation(
+    @Param('reservationId') reservationId: string,
+    @Body() dto: CancelReservationDto,
+  ) {
+    return await this.creditsService.cancelReservationWithIdempotency(
+      reservationId,
+      dto.note,
+    );
+  }
+
+  @Post('refunds')
+  @ApiOperation({ summary: 'Create a credit refund' })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    description: 'Unique key for idempotent requests',
+    required: true,
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Refund processed successfully',
+  })
+  async createRefund(
+    @Request() req,
+    @Body() dto: CreateRefundDto,
+    @Headers('idempotency-key') idempotencyKey: string,
+  ) {
+    if (!idempotencyKey) {
+      return {
+        error: 'Idempotency-Key header is required',
+        status: 400,
+      };
+    }
+    const userId = req.user.uuid || req.user.id;
+    return await this.creditsService.refundCreditsWithIdempotency(
+      userId,
+      dto.orderId,
+      dto.amount,
+      idempotencyKey,
+      dto.note,
+    );
   }
 
   // Admin diagnostic endpoints
@@ -114,8 +232,8 @@ export class CreditsController {
     await this.creditsService.addCredits(
       body.userId,
       body.amount,
-      undefined, // type defaults to CREDIT
-      undefined, // no order ID
+      undefined,
+      undefined,
       body.note || `Admin manual credit: €${body.amount.toFixed(2)}`,
     );
     const balance = await this.creditsService.getBalance(body.userId);
@@ -126,5 +244,34 @@ export class CreditsController {
       newBalance: balance.balance,
       lifetimeEarned: balance.lifetime_earned,
     };
+  }
+
+  @Post('admin/refund')
+  @UseGuards(JwtRolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiOperation({ summary: 'Admin: Force refund credits to a user' })
+  @ApiHeader({
+    name: 'Idempotency-Key',
+    description: 'Unique key for idempotent requests',
+    required: true,
+  })
+  @ApiResponse({ status: 200, description: 'Refund processed successfully' })
+  async adminRefund(
+    @Body() dto: AdminRefundDto,
+    @Headers('idempotency-key') idempotencyKey: string,
+  ) {
+    if (!idempotencyKey) {
+      return {
+        error: 'Idempotency-Key header is required',
+        status: 400,
+      };
+    }
+    return await this.creditsService.refundCreditsWithIdempotency(
+      dto.userId,
+      dto.orderId,
+      dto.amount,
+      idempotencyKey,
+      dto.note || `Admin refund for order ${dto.orderId}`,
+    );
   }
 }

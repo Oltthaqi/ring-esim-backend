@@ -258,7 +258,7 @@ export class CreditsService {
         stripe_payment_intent_id: reservation.stripe_payment_intent_id,
         note:
           reason ||
-          `Released reservation ${reservationId} (€${reservation.amount.toFixed(2)})`,
+          `Released reservation ${reservationId} (€${typeof reservation.amount === 'number' ? reservation.amount.toFixed(2) : parseFloat(String(reservation.amount)).toFixed(2)})`,
       });
       await queryRunner.manager.save(ledgerEntry);
 
@@ -361,7 +361,7 @@ export class CreditsService {
         order_id: reservation.order_id,
         stripe_payment_intent_id:
           stripePaymentIntentId || reservation.stripe_payment_intent_id,
-        note: `Debited €${reservation.amount.toFixed(2)} for order ${reservation.order_id} (converted from reservation)`,
+        note: `Debited €${typeof reservation.amount === 'number' ? reservation.amount.toFixed(2) : parseFloat(String(reservation.amount)).toFixed(2)} for order ${reservation.order_id} (converted from reservation)`,
       });
       await queryRunner.manager.save(ledgerEntry);
 
@@ -636,5 +636,219 @@ export class CreditsService {
     this.logger.log(
       `Updated reservation ${reservationId} with PI ${stripePaymentIntentId}`,
     );
+  }
+
+  async getReservationById(
+    reservationId: string,
+  ): Promise<UserCreditsReservation | null> {
+    return await this.reservationRepository.findOne({
+      where: { id: reservationId },
+    });
+  }
+
+  async createReservationWithIdempotency(
+    userId: string,
+    amountStr: string,
+    currency: string,
+    idempotencyKey: string,
+    orderId?: string,
+    note?: string,
+    expiresInSeconds?: number,
+  ): Promise<{
+    reservationId: string;
+    status: string;
+    amount: string;
+    currency: string;
+    balanceAfterReservation: string;
+  }> {
+    const amount = parseFloat(amountStr);
+    if (isNaN(amount) || amount <= 0) {
+      throw new BadRequestException('Invalid amount');
+    }
+
+    const existingReservation = await this.reservationRepository.findOne({
+      where: {
+        user_id: userId,
+        stripe_payment_intent_id: idempotencyKey,
+        status: ReservationStatus.ACTIVE,
+      },
+    });
+
+    if (existingReservation) {
+      const balance = await this.getBalance(userId);
+      return {
+        reservationId: existingReservation.id,
+        status: 'PENDING',
+        amount: existingReservation.amount.toString(),
+        currency: currency || 'EUR',
+        balanceAfterReservation: balance.balance.toString(),
+      };
+    }
+
+    const reservation = await this.reserveCredits(
+      userId,
+      orderId || `temp-${Date.now()}`,
+      amount,
+      idempotencyKey,
+    );
+
+    const balance = await this.getBalance(userId);
+
+    return {
+      reservationId: reservation.id,
+      status: 'PENDING',
+      amount: amount.toString(),
+      currency: currency || 'EUR',
+      balanceAfterReservation: balance.balance.toString(),
+    };
+  }
+
+  async confirmReservationWithIdempotency(
+    reservationId: string,
+    orderId: string,
+    idempotencyKey: string,
+  ): Promise<{
+    reservationId: string;
+    status: string;
+    capturedAmount: string;
+    currency: string;
+    newBalance: string;
+  }> {
+    const reservation = await this.reservationRepository.findOne({
+      where: { id: reservationId },
+    });
+
+    if (!reservation) {
+      throw new BadRequestException('Reservation not found');
+    }
+
+    if (reservation.status === ReservationStatus.CONVERTED) {
+      const balance = await this.getBalance(reservation.user_id);
+      return {
+        reservationId: reservation.id,
+        status: 'CONFIRMED',
+        capturedAmount: reservation.amount.toString(),
+        currency: 'EUR',
+        newBalance: balance.balance.toString(),
+      };
+    }
+
+    if (reservation.status !== ReservationStatus.ACTIVE) {
+      throw new BadRequestException(
+        `Cannot confirm reservation with status ${reservation.status}`,
+      );
+    }
+
+    await this.convertReservationToDebit(reservationId, idempotencyKey);
+
+    const balance = await this.getBalance(reservation.user_id);
+
+    return {
+      reservationId: reservation.id,
+      status: 'CONFIRMED',
+      capturedAmount: reservation.amount.toString(),
+      currency: 'EUR',
+      newBalance: balance.balance.toString(),
+    };
+  }
+
+  async cancelReservationWithIdempotency(
+    reservationId: string,
+    note?: string,
+  ): Promise<{
+    reservationId: string;
+    status: string;
+    amountReleased: string;
+    currency: string;
+    newBalance: string;
+  }> {
+    const reservation = await this.reservationRepository.findOne({
+      where: { id: reservationId },
+    });
+
+    if (!reservation) {
+      throw new BadRequestException('Reservation not found');
+    }
+
+    if (reservation.status === ReservationStatus.RELEASED) {
+      const balance = await this.getBalance(reservation.user_id);
+      return {
+        reservationId: reservation.id,
+        status: 'CANCELED',
+        amountReleased: reservation.amount.toString(),
+        currency: 'EUR',
+        newBalance: balance.balance.toString(),
+      };
+    }
+
+    if (reservation.status !== ReservationStatus.ACTIVE) {
+      throw new BadRequestException(
+        `Cannot cancel reservation with status ${reservation.status}`,
+      );
+    }
+
+    await this.releaseReservation(reservationId, note);
+
+    const balance = await this.getBalance(reservation.user_id);
+
+    return {
+      reservationId: reservation.id,
+      status: 'CANCELED',
+      amountReleased: reservation.amount.toString(),
+      currency: 'EUR',
+      newBalance: balance.balance.toString(),
+    };
+  }
+
+  async refundCreditsWithIdempotency(
+    userId: string,
+    orderId: string,
+    amountStr: string,
+    idempotencyKey: string,
+    note?: string,
+  ): Promise<{
+    refunded: string;
+    currency: string;
+    newBalance: string;
+  }> {
+    const amount = parseFloat(amountStr);
+    if (isNaN(amount) || amount <= 0) {
+      throw new BadRequestException('Invalid refund amount');
+    }
+
+    const existingRefund = await this.ledgerRepository.findOne({
+      where: {
+        user_id: userId,
+        order_id: orderId,
+        type: CreditLedgerType.REFUND,
+        stripe_payment_intent_id: idempotencyKey,
+      },
+    });
+
+    if (existingRefund) {
+      const balance = await this.getBalance(userId);
+      return {
+        refunded: existingRefund.amount.toString(),
+        currency: 'EUR',
+        newBalance: balance.balance.toString(),
+      };
+    }
+
+    await this.addCredits(
+      userId,
+      amount,
+      CreditLedgerType.REFUND,
+      orderId,
+      note || `Refund for order ${orderId}: €${amount.toFixed(2)}`,
+      idempotencyKey,
+    );
+
+    const balance = await this.getBalance(userId);
+
+    return {
+      refunded: amount.toString(),
+      currency: 'EUR',
+      newBalance: balance.balance.toString(),
+    };
   }
 }

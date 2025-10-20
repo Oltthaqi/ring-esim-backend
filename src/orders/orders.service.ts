@@ -5,9 +5,10 @@ import {
   Inject,
   forwardRef,
   Logger,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, DataSource } from 'typeorm';
 import { Order, OrderStatus, OrderType } from './entities/order.entity';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { CreateSimpleOrderDto } from './dto/create-simple-order.dto';
@@ -25,6 +26,8 @@ import { PromoCodesService } from '../promo-codes/promo-codes.service';
 import { CreditsService } from '../credits/credits.service';
 import { CartService } from '../cart/cart.service';
 import { CreditLedgerType } from '../credits/entities/user-credits-ledger.entity';
+import { DecimalUtil } from '../common/utils/decimal.util';
+import { CompleteWithCreditsDto } from './dto/complete-with-credits.dto';
 
 @Injectable()
 export class OrdersService {
@@ -43,13 +46,13 @@ export class OrdersService {
     private readonly promoCodesService: PromoCodesService,
     private readonly creditsService: CreditsService,
     private readonly cartService: CartService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async create(
     userId: string,
     createOrderDto: CreateOrderDto,
   ): Promise<OrderResponseDto> {
-    console.log('🔍 Creating order for user:', userId);
     if (!userId) {
       throw new BadRequestException('User ID is required but not provided');
     }
@@ -138,30 +141,28 @@ export class OrdersService {
 
     const order = this.orderRepository.create(orderData);
 
-    // Save and get the ID
     const result: any = await this.orderRepository.save(order);
     const savedOrderId = Array.isArray(result) ? result[0].id : result.id;
 
-    // CRITICAL FIX: Create credits reservation AFTER order is saved (so we have real order ID)
-    let reservation: any = null;
     if (pricing && pricing.credits_applied > 0) {
       this.logger.log(
-        `Creating credits reservation for order ${savedOrderId}: €${pricing.credits_applied}`,
+        `Reserving ${pricing.credits_applied} credits for order ${orderNumber}`,
       );
-      reservation = await this.creditsService.reserveCredits(
-        userId,
-        savedOrderId, // Use real order ID, not temp
-        pricing.credits_applied,
-      );
-
-      // Link reservation to order
-      await this.orderRepository.update(savedOrderId, {
-        credits_reservation_id: reservation.id,
-      });
+      try {
+        const reservation = await this.creditsService.reserveCredits(
+          userId,
+          savedOrderId,
+          pricing.credits_applied,
+        );
+        await this.orderRepository.update(savedOrderId, {
+          credits_reservation_id: reservation.id,
+        });
+      } catch (reserveError) {
+        this.logger.error(
+          `Failed to reserve credits for order ${savedOrderId}: ${reserveError.message}`,
+        );
+      }
     }
-
-    // Process the order immediately
-    // await this.processOrder(savedOrderId);
 
     return this.toResponseDto(await this.findOne(savedOrderId));
   }
@@ -169,15 +170,32 @@ export class OrdersService {
   async processOrder(orderId: string): Promise<void> {
     const order = await this.orderRepository.findOne({
       where: { id: orderId },
-      relations: ['packageTemplate'],
+      relations: ['packageTemplate', 'usage'],
     });
 
     if (!order) {
       throw new NotFoundException('Order not found');
     }
 
+    // Idempotent guards
+    if (order.status === OrderStatus.COMPLETED) {
+      this.logger.log(
+        `[FULFILLMENT] Order ${orderId} already COMPLETED (idempotent, skipping processOrder)`,
+      );
+      return; // Already fulfilled
+    }
+
+    if (order.status === OrderStatus.PROCESSING) {
+      this.logger.log(
+        `[FULFILLMENT] Order ${orderId} already PROCESSING (in-flight, skipping)`,
+      );
+      return; // Already being processed
+    }
+
     if (order.status !== OrderStatus.PENDING) {
-      throw new BadRequestException('Order is not in pending status');
+      throw new BadRequestException(
+        `Order is in ${order.status} status, expected PENDING`,
+      );
     }
 
     // Update status to processing
@@ -202,11 +220,10 @@ export class OrdersService {
       // Create usage tracking record for the completed order
       try {
         await this.usageService.createUsageRecord(orderId);
-        console.log(` Usage record created for order ${orderId}`);
+        this.logger.log(`Usage record created for order ${orderId}`);
       } catch (error) {
-        console.log(
-          ` Failed to create usage record for order ${orderId}:`,
-          error.message,
+        this.logger.warn(
+          `Failed to create usage record for order ${orderId}: ${error.message}`,
         );
         // Don't throw error here as order is already completed successfully
       }
@@ -214,23 +231,9 @@ export class OrdersService {
       // Send order completion email
       try {
         await this.sendOrderCompletionEmail(orderId);
-        console.log(` Order completion email sent for order ${orderId}`);
       } catch (error) {
-        console.log(
-          ` Failed to send order completion email for order ${orderId}:`,
-          error.message,
-        );
-        // Don't throw error here as order is already completed successfully
-      }
-
-      // Send order completion email
-      try {
-        await this.sendOrderCompletionEmail(orderId);
-        console.log(`✅ Order completion email sent for order ${orderId}`);
-      } catch (error) {
-        console.log(
-          `⚠️ Failed to send order completion email for order ${orderId}:`,
-          error.message,
+        this.logger.error(
+          `Failed to send order completion email for order ${orderId}: ${error.message}`,
         );
         // Don't throw error here as order is already completed successfully
       }
@@ -248,11 +251,8 @@ export class OrdersService {
   private async processOneTimeOrder(order: Order): Promise<void> {
     const requestBody = this.buildAffectPackageRequest(order);
 
-    console.log(' OCS Request:', JSON.stringify(requestBody, null, 2));
-
     try {
       const response = await this.ocsService.post(requestBody);
-      console.log(' OCS Response:', JSON.stringify(response, null, 2));
 
       // Extract response data and update order
       const ocsResponseData = (response as any)?.affectPackageToSubscriber;
@@ -265,7 +265,6 @@ export class OrdersService {
           ocsResponseData.smdpServer
         ) {
           qrCodeUrl = `LPA:1$${ocsResponseData.smdpServer}$${ocsResponseData.activationCode}`;
-          console.log(' Generated QR code from OCS response:', qrCodeUrl);
         }
 
         await this.orderRepository.update(order.id, {
@@ -280,13 +279,14 @@ export class OrdersService {
           urlQrCode: qrCodeUrl,
           userSimName: ocsResponseData.userSimName,
         });
-        console.log(' eSIM activation details saved with QR code:', qrCodeUrl);
       } else {
-        console.log(' No affectPackageToSubscriber data in response');
         throw new BadRequestException('OCS API returned empty response');
       }
     } catch (error) {
-      console.log(' OCS API Error:', error);
+      this.logger.error(
+        `Failed to process one-time order: ${error.message}`,
+        error.stack,
+      );
       throw new BadRequestException(
         `Failed to process one-time order: ${error.message}`,
       );
@@ -325,17 +325,9 @@ export class OrdersService {
     // Build top-up request for OCS API
     const topupRequest = this.buildTopupRequest(order);
 
-    console.log('🔄 Processing top-up for subscriber:', order.subscriberId);
-    console.log(
-      'Top-up request payload:',
-      JSON.stringify(topupRequest, null, 2),
-    );
-
     try {
       // Call OCS API to add package to existing subscriber
       const response = await this.ocsService.post(topupRequest);
-
-      console.log(' Top-up successful:', JSON.stringify(response, null, 2));
 
       // Extract response data
       const topupResponse = (response as any).affectPackageToSubscriber || {};
@@ -348,10 +340,6 @@ export class OrdersService {
         topupResponse.smdpServer
       ) {
         qrCodeUrl = `LPA:1$${topupResponse.smdpServer}$${topupResponse.activationCode}`;
-        console.log(
-          ' Generated QR code for top-up from OCS response:',
-          qrCodeUrl,
-        );
       }
 
       // Update order with success data
@@ -366,7 +354,7 @@ export class OrdersService {
         activationCode: topupResponse.activationCode,
       });
     } catch (error: any) {
-      console.log(' Top-up failed:', error);
+      this.logger.error(`Top-up failed: ${error.message}`, error.stack);
       throw new BadRequestException(`Top-up failed: ${error.message}`);
     }
   }
@@ -464,7 +452,7 @@ export class OrdersService {
     const whereCondition = userId ? { userId } : {};
     const orders = await this.orderRepository.find({
       where: whereCondition,
-      relations: ['user', 'packageTemplate'],
+      relations: ['user', 'packageTemplate', 'usage'],
       order: { createdAt: 'DESC' },
     });
 
@@ -504,7 +492,7 @@ export class OrdersService {
         userId,
         orderType: OrderType.ONE_TIME,
       },
-      relations: ['packageTemplate'],
+      relations: ['packageTemplate', 'usage'],
       order: { createdAt: 'DESC' },
     });
 
@@ -514,7 +502,7 @@ export class OrdersService {
         userId,
         orderType: OrderType.TOPUP,
       },
-      relations: ['packageTemplate'],
+      relations: ['packageTemplate', 'usage'],
       order: { createdAt: 'DESC' },
     });
 
@@ -558,7 +546,7 @@ export class OrdersService {
   async findOne(id: string): Promise<Order> {
     const order = await this.orderRepository.findOne({
       where: { id },
-      relations: ['user', 'packageTemplate'],
+      relations: ['user', 'packageTemplate', 'usage'],
     });
 
     if (!order) {
@@ -639,7 +627,7 @@ export class OrdersService {
   async processOrderAfterPayment(orderId: string): Promise<void> {
     const order = await this.orderRepository.findOne({
       where: { id: orderId },
-      relations: ['packageTemplate'],
+      relations: ['packageTemplate', 'usage'],
     });
     if (!order) throw new NotFoundException('Order not found');
 
@@ -655,7 +643,6 @@ export class OrdersService {
     if (order.status !== OrderStatus.PENDING) {
       // If it's already processing, let it continue
       if (order.status === OrderStatus.PROCESSING) {
-        console.log('Order is already being processed');
         return;
       }
       if (order.status === OrderStatus.FAILED) {
@@ -723,11 +710,11 @@ export class OrdersService {
       // Reload the order to get updated status
       const updatedOrder = await this.orderRepository.findOne({
         where: { id: savedOrder.id },
-        relations: ['packageTemplate'],
+        relations: ['packageTemplate', 'usage'],
       });
       return this.toResponseDto(updatedOrder!);
     } catch (error) {
-      console.error('Failed to process top-up order:', error);
+      this.logger.error('Failed to process top-up order', error.stack);
       // Return the order even if processing failed
       return this.toResponseDto(savedOrder);
     }
@@ -808,7 +795,7 @@ export class OrdersService {
       // Reload order to get updated status
       const processedOrder = await this.orderRepository.findOneOrFail({
         where: { id: savedOrder.id },
-        relations: ['packageTemplate'],
+        relations: ['packageTemplate', 'usage'],
       });
 
       return this.toResponseDto(processedOrder);
@@ -825,7 +812,7 @@ export class OrdersService {
   async processTopup(orderId: string): Promise<void> {
     const order = await this.orderRepository.findOne({
       where: { id: orderId },
-      relations: ['packageTemplate'],
+      relations: ['packageTemplate', 'usage'],
     });
 
     if (!order) {
@@ -851,16 +838,8 @@ export class OrdersService {
       // Build top-up request for OCS API
       const topupRequest = this.buildTopupRequest(order);
 
-      console.log('🔄 Processing top-up for subscriber:', order.subscriberId);
-      console.log(
-        '📦 Top-up request payload:',
-        JSON.stringify(topupRequest, null, 2),
-      );
-
       // Call OCS API to add package to existing subscriber
       const response = await this.ocsService.post(topupRequest);
-
-      console.log('✅ Top-up successful:', JSON.stringify(response, null, 2));
 
       // Extract response data
       const topupResponse = (response as any).affectPackageToSubscriber || {};
@@ -873,10 +852,6 @@ export class OrdersService {
         topupResponse.smdpServer
       ) {
         qrCodeUrl = `LPA:1$${topupResponse.smdpServer}$${topupResponse.activationCode}`;
-        console.log(
-          '🔧 Generated QR code for top-up from OCS response:',
-          qrCodeUrl,
-        );
       }
 
       // Update order with success data
@@ -895,11 +870,10 @@ export class OrdersService {
       // Create usage tracking record for the completed top-up order
       try {
         await this.usageService.createUsageRecord(orderId);
-        console.log(`✅ Usage record created for top-up order ${orderId}`);
+        this.logger.log(`Usage record created for top-up order ${orderId}`);
       } catch (error) {
-        console.log(
-          `⚠️ Failed to create usage record for top-up order ${orderId}:`,
-          error.message,
+        this.logger.warn(
+          `Failed to create usage record for top-up order ${orderId}: ${error.message}`,
         );
         // Don't throw error here as top-up is already completed successfully
       }
@@ -907,18 +881,14 @@ export class OrdersService {
       // Send order completion email for top-up
       try {
         await this.sendOrderCompletionEmail(orderId);
-        console.log(
-          `✅ Order completion email sent for top-up order ${orderId}`,
-        );
       } catch (error) {
-        console.log(
-          `⚠️ Failed to send order completion email for top-up order ${orderId}:`,
-          error.message,
+        this.logger.error(
+          `Failed to send order completion email for top-up order ${orderId}: ${error.message}`,
         );
         // Don't throw error here as top-up is already completed successfully
       }
     } catch (error: any) {
-      console.log('❌ Top-up failed:', error);
+      this.logger.error('Top-up failed', error.stack);
 
       // Update order with failure
       await this.orderRepository.update(orderId, {
@@ -971,7 +941,7 @@ export class OrdersService {
   async getOrderForUsageTracking(orderId: string): Promise<Order> {
     const order = await this.orderRepository.findOne({
       where: { id: orderId },
-      relations: ['packageTemplate', 'user'],
+      relations: ['packageTemplate', 'user', 'usage'],
     });
 
     if (!order) {
@@ -999,6 +969,29 @@ export class OrdersService {
     const usageRecords = await this.usageService.getUsageByIccids(iccids);
 
     return usageRecords;
+  }
+
+  /**
+   * Convert volume string (e.g., "5GB", "500MB") to bytes
+   */
+  private parseVolumeToBytes(volume: string): number {
+    if (!volume) return 0;
+
+    const volumeStr = volume.toUpperCase();
+    const numMatch = volumeStr.match(/(\d+(?:\.\d+)?)/);
+    if (!numMatch) return 0;
+
+    const num = parseFloat(numMatch[1]);
+
+    if (volumeStr.includes('GB')) {
+      return num * 1024 * 1024 * 1024;
+    } else if (volumeStr.includes('MB')) {
+      return num * 1024 * 1024;
+    } else if (volumeStr.includes('KB')) {
+      return num * 1024;
+    } else {
+      return num; // assume bytes
+    }
   }
 
   /**
@@ -1061,13 +1054,150 @@ export class OrdersService {
     order: Order,
     usageRecords: Usage[],
   ): void {
-    if (usageRecords && usageRecords.length > 0) {
-      if (usageRecords.length === 1) {
-        // Single usage record - show it directly
-        const usage = usageRecords[0];
-        const consolidatedUsage = {
+    if (!usageRecords || usageRecords.length === 0) {
+      // No usage record yet - create a default one based on package template
+      const totalDataAllowed = this.parseVolumeToBytes(
+        order.packageTemplate?.volume || '0',
+      );
+      const defaultUsage = {
+        id: null,
+        subscriberId: order.subscriberId || null,
+        totalDataUsed: 0,
+        totalDataAllowed,
+        totalDataRemaining: totalDataAllowed,
+        usagePercentage: 0,
+        isActive: order.status === OrderStatus.COMPLETED,
+        status: order.status === OrderStatus.COMPLETED ? 'active' : 'pending',
+        lastSyncedAt: null,
+        individualUsage: [],
+      };
+      order.usage = [defaultUsage as any];
+      return;
+    }
+
+    if (usageRecords.length === 1) {
+      // Single usage record - show it directly
+      const usage = usageRecords[0];
+      const consolidatedUsage = {
+        id: usage.id,
+        subscriberId: usage.subscriberId,
+        totalDataUsed: Number(usage.totalDataUsed),
+        totalDataAllowed: Number(usage.totalDataAllowed),
+        totalDataRemaining: Number(usage.totalDataRemaining),
+        usagePercentage:
+          usage.totalDataAllowed > 0
+            ? (Number(usage.totalDataUsed) / Number(usage.totalDataAllowed)) *
+              100
+            : 0,
+        isActive: usage.isActive,
+        status: usage.status,
+        lastSyncedAt: usage.lastSyncedAt,
+      };
+      order.usage = [consolidatedUsage as any];
+    } else {
+      // Get the main order's package template ID
+      const mainPackageTemplateId = order.packageTemplate?.packageTemplateId;
+
+      // Filter usage records to only include ACTIVE ones with the same package template
+      // Exclude expired/exhausted eSIMs (where totalDataRemaining <= 0 or isActive === false)
+      const matchingPackageUsageRecords = usageRecords.filter(
+        (usage) =>
+          usage.order?.packageTemplate?.packageTemplateId ===
+            mainPackageTemplateId &&
+          usage.isActive === true &&
+          Number(usage.totalDataRemaining) > 0,
+      );
+
+      // Calculate totals only for ACTIVE matching package template usage records
+      const totalDataUsed = matchingPackageUsageRecords.reduce(
+        (sum, usage) => sum + Number(usage.totalDataUsed),
+        0,
+      );
+      const totalDataAllowed = matchingPackageUsageRecords.reduce(
+        (sum, usage) => sum + Number(usage.totalDataAllowed),
+        0,
+      );
+      const totalDataRemaining = Math.max(0, totalDataAllowed - totalDataUsed);
+
+      // Filter and sort usage records
+      // 1. Filter: Only include active packages with remaining data > 0
+      const activeUsageRecords = usageRecords.filter((usage) => {
+        const hasRemainingData = Number(usage.totalDataRemaining) > 0;
+        const isActivePackage = usage.isActive === true;
+        return isActivePackage && hasRemainingData;
+      });
+
+      // 2. Sort by lastUsageDate (latest first), fallback to lastSyncedAt
+      // This ensures individualUsage[0] is always the most recently used eSIM
+      const sortedUsageRecords = [...activeUsageRecords].sort((a, b) => {
+        // Try lastUsageDate first, fallback to lastSyncedAt
+        const dateA = a.lastUsageDate
+          ? new Date(a.lastUsageDate)
+          : a.lastSyncedAt
+            ? new Date(a.lastSyncedAt)
+            : null;
+        const dateB = b.lastUsageDate
+          ? new Date(b.lastUsageDate)
+          : b.lastSyncedAt
+            ? new Date(b.lastSyncedAt)
+            : null;
+
+        if (!dateA && !dateB) return 0;
+        if (!dateA) return 1; // null dates go to end
+        if (!dateB) return -1; // null dates go to end
+        return dateB.getTime() - dateA.getTime(); // latest first
+      });
+
+      // 3. If no active records with data, include all records sorted by lastUsageDate/lastSyncedAt
+      // (This ensures we always show something, even if all are exhausted)
+      const finalSortedRecords =
+        sortedUsageRecords.length > 0
+          ? sortedUsageRecords
+          : [...usageRecords].sort((a, b) => {
+              // Try lastUsageDate first, fallback to lastSyncedAt
+              const dateA = a.lastUsageDate
+                ? new Date(a.lastUsageDate)
+                : a.lastSyncedAt
+                  ? new Date(a.lastSyncedAt)
+                  : null;
+              const dateB = b.lastUsageDate
+                ? new Date(b.lastUsageDate)
+                : b.lastSyncedAt
+                  ? new Date(b.lastSyncedAt)
+                  : null;
+              if (!dateA && !dateB) return 0;
+              if (!dateA) return 1;
+              if (!dateB) return -1;
+              return dateB.getTime() - dateA.getTime();
+            });
+
+      // Create a consolidated usage object
+      const consolidatedUsage = {
+        id: usageRecords[0].id, // Use the first usage ID as reference
+        subscriberId: usageRecords[0].subscriberId,
+        totalDataUsed,
+        totalDataAllowed,
+        totalDataRemaining,
+        usagePercentage:
+          totalDataAllowed > 0 ? (totalDataUsed / totalDataAllowed) * 100 : 0,
+        isActive: usageRecords.some((u) => u.isActive),
+        status: totalDataRemaining <= 0 ? 'in-active' : 'active',
+        lastSyncedAt: usageRecords.reduce((latest, usage) => {
+          if (!latest || !usage.lastSyncedAt) return latest;
+          if (!usage.lastSyncedAt) return latest;
+          return new Date(usage.lastSyncedAt) > new Date(latest)
+            ? usage.lastSyncedAt
+            : latest;
+        }, usageRecords[0].lastSyncedAt),
+        // Keep individual usage records for detailed breakdown
+        // Sorted by lastUsageDate, filtered to active with data > 0
+        individualUsage: finalSortedRecords.map((usage) => ({
           id: usage.id,
-          subscriberId: usage.subscriberId,
+          orderId: usage.orderId,
+          packageTemplateId:
+            usage.order?.packageTemplate?.packageTemplateId || null,
+          packageTemplateName:
+            usage.order?.packageTemplate?.packageTemplateName || null,
           totalDataUsed: Number(usage.totalDataUsed),
           totalDataAllowed: Number(usage.totalDataAllowed),
           totalDataRemaining: Number(usage.totalDataRemaining),
@@ -1079,136 +1209,14 @@ export class OrdersService {
           isActive: usage.isActive,
           status: usage.status,
           lastSyncedAt: usage.lastSyncedAt,
-        };
-        order.usage = [consolidatedUsage as any];
-      } else {
-        // Get the main order's package template ID
-        const mainPackageTemplateId = order.packageTemplate?.packageTemplateId;
+          lastUsageDate: usage.lastUsageDate, // ✅ From Usage entity
+          iccid: usage.iccid, // ✅ From Usage entity
+          activationCode: usage.order?.activationCode || null, // ✅ From Order entity
+        })),
+      };
 
-        // Filter usage records to only include ACTIVE ones with the same package template
-        // Exclude expired/exhausted eSIMs (where totalDataRemaining <= 0 or isActive === false)
-        const matchingPackageUsageRecords = usageRecords.filter(
-          (usage) =>
-            usage.order?.packageTemplate?.packageTemplateId ===
-              mainPackageTemplateId &&
-            usage.isActive === true &&
-            Number(usage.totalDataRemaining) > 0,
-        );
-
-        // Calculate totals only for ACTIVE matching package template usage records
-        const totalDataUsed = matchingPackageUsageRecords.reduce(
-          (sum, usage) => sum + Number(usage.totalDataUsed),
-          0,
-        );
-        const totalDataAllowed = matchingPackageUsageRecords.reduce(
-          (sum, usage) => sum + Number(usage.totalDataAllowed),
-          0,
-        );
-        const totalDataRemaining = Math.max(
-          0,
-          totalDataAllowed - totalDataUsed,
-        );
-
-        // Filter and sort usage records
-        // 1. Filter: Only include active packages with remaining data > 0
-        const activeUsageRecords = usageRecords.filter((usage) => {
-          const hasRemainingData = Number(usage.totalDataRemaining) > 0;
-          const isActivePackage = usage.isActive === true;
-          return isActivePackage && hasRemainingData;
-        });
-
-        // 2. Sort by lastUsageDate (latest first), fallback to lastSyncedAt
-        // This ensures individualUsage[0] is always the most recently used eSIM
-        const sortedUsageRecords = [...activeUsageRecords].sort((a, b) => {
-          // Try lastUsageDate first, fallback to lastSyncedAt
-          const dateA = a.lastUsageDate
-            ? new Date(a.lastUsageDate)
-            : a.lastSyncedAt
-              ? new Date(a.lastSyncedAt)
-              : null;
-          const dateB = b.lastUsageDate
-            ? new Date(b.lastUsageDate)
-            : b.lastSyncedAt
-              ? new Date(b.lastSyncedAt)
-              : null;
-
-          if (!dateA && !dateB) return 0;
-          if (!dateA) return 1; // null dates go to end
-          if (!dateB) return -1; // null dates go to end
-          return dateB.getTime() - dateA.getTime(); // latest first
-        });
-
-        // 3. If no active records with data, include all records sorted by lastUsageDate/lastSyncedAt
-        // (This ensures we always show something, even if all are exhausted)
-        const finalSortedRecords =
-          sortedUsageRecords.length > 0
-            ? sortedUsageRecords
-            : [...usageRecords].sort((a, b) => {
-                // Try lastUsageDate first, fallback to lastSyncedAt
-                const dateA = a.lastUsageDate
-                  ? new Date(a.lastUsageDate)
-                  : a.lastSyncedAt
-                    ? new Date(a.lastSyncedAt)
-                    : null;
-                const dateB = b.lastUsageDate
-                  ? new Date(b.lastUsageDate)
-                  : b.lastSyncedAt
-                    ? new Date(b.lastSyncedAt)
-                    : null;
-                if (!dateA && !dateB) return 0;
-                if (!dateA) return 1;
-                if (!dateB) return -1;
-                return dateB.getTime() - dateA.getTime();
-              });
-
-        // Create a consolidated usage object
-        const consolidatedUsage = {
-          id: usageRecords[0].id, // Use the first usage ID as reference
-          subscriberId: usageRecords[0].subscriberId,
-          totalDataUsed,
-          totalDataAllowed,
-          totalDataRemaining,
-          usagePercentage:
-            totalDataAllowed > 0 ? (totalDataUsed / totalDataAllowed) * 100 : 0,
-          isActive: usageRecords.some((u) => u.isActive),
-          status: totalDataRemaining <= 0 ? 'in-active' : 'active',
-          lastSyncedAt: usageRecords.reduce((latest, usage) => {
-            if (!latest || !usage.lastSyncedAt) return latest;
-            if (!usage.lastSyncedAt) return latest;
-            return new Date(usage.lastSyncedAt) > new Date(latest)
-              ? usage.lastSyncedAt
-              : latest;
-          }, usageRecords[0].lastSyncedAt),
-          // Keep individual usage records for detailed breakdown
-          // Sorted by lastUsageDate, filtered to active with data > 0
-          individualUsage: finalSortedRecords.map((usage) => ({
-            id: usage.id,
-            orderId: usage.orderId,
-            packageTemplateId:
-              usage.order?.packageTemplate?.packageTemplateId || null,
-            packageTemplateName:
-              usage.order?.packageTemplate?.packageTemplateName || null,
-            totalDataUsed: Number(usage.totalDataUsed),
-            totalDataAllowed: Number(usage.totalDataAllowed),
-            totalDataRemaining: Number(usage.totalDataRemaining),
-            usagePercentage:
-              usage.totalDataAllowed > 0
-                ? (Number(usage.totalDataUsed) /
-                    Number(usage.totalDataAllowed)) *
-                  100
-                : 0,
-            isActive: usage.isActive,
-            status: usage.status,
-            lastSyncedAt: usage.lastSyncedAt,
-            lastUsageDate: usage.lastUsageDate, // ✅ From Usage entity
-            iccid: usage.iccid, // ✅ From Usage entity
-            activationCode: usage.order?.activationCode || null, // ✅ From Order entity
-          })),
-        };
-
-        // Set the consolidated usage
-        order.usage = [consolidatedUsage as any];
-      }
+      // Set the consolidated usage
+      order.usage = [consolidatedUsage as any];
     }
   }
 
@@ -1222,7 +1230,7 @@ export class OrdersService {
     relevantUsageRecords: Usage[],
   ): void {
     // This method is deprecated and should not be used
-    console.warn(
+    this.logger.warn(
       'consolidateUsageData is deprecated, use consolidateUsageDataForGroup instead',
     );
   }
@@ -1296,7 +1304,7 @@ export class OrdersService {
   private async sendOrderCompletionEmail(orderId: string): Promise<void> {
     const order = await this.orderRepository.findOne({
       where: { id: orderId },
-      relations: ['user', 'packageTemplate'],
+      relations: ['user', 'packageTemplate', 'usage'],
     });
 
     if (!order || !order.user || !order.packageTemplate) {
@@ -1309,7 +1317,6 @@ export class OrdersService {
     if (!qrCodeUrl && order.activationCode && order.smdpServer) {
       // Generate QR code from available data
       qrCodeUrl = `LPA:1$${order.smdpServer}$${order.activationCode}`;
-      console.log('🔧 Generated QR code from activation data:', qrCodeUrl);
 
       // Update the order with the generated QR code
       await this.orderRepository.update(orderId, {
@@ -1318,12 +1325,9 @@ export class OrdersService {
     }
 
     if (!qrCodeUrl) {
-      console.log('⚠️ No QR code available for order:', orderId);
-      console.log('Order data:', {
-        activationCode: order.activationCode,
-        smdpServer: order.smdpServer,
-        urlQrCode: order.urlQrCode,
-      });
+      this.logger.warn(
+        `No QR code available for order ${orderId} (activationCode: ${!!order.activationCode}, smdpServer: ${!!order.smdpServer})`,
+      );
       throw new Error('QR code URL not available for this order');
     }
 
@@ -1340,15 +1344,6 @@ export class OrdersService {
       logoUrl: this.emailService.getLogoUrl(), // Get logo from email service
     };
 
-    console.log('📧 Sending order completion email with QR code:', qrCodeUrl);
-    console.log('📧 Order data:', {
-      orderNumber: order.orderNumber,
-      email: order.user.email,
-      qrCodeUrl: qrCodeUrl,
-      activationCode: order.activationCode,
-      smdpServer: order.smdpServer,
-    });
-
     await this.emailService.sendOrderCompletionEmail(
       order.user.email,
       orderData,
@@ -1357,12 +1352,9 @@ export class OrdersService {
 
   async setEmailLogo(logoUrl: string): Promise<void> {
     this.emailService.setLogoUrl(logoUrl);
-    console.log('🎨 Email logo set to:', logoUrl);
   }
 
   async testQrCodeGeneration(qrText: string, email: string): Promise<void> {
-    console.log('🧪 Testing QR code generation with text:', qrText);
-
     const testOrderData = {
       orderNumber: 'TEST-123456',
       packageName: 'Test Package',
@@ -1376,7 +1368,6 @@ export class OrdersService {
     };
 
     await this.emailService.sendOrderCompletionEmail(email, testOrderData);
-    console.log('✅ Test email sent to:', email);
   }
 
   async debugQrCodeGeneration(): Promise<any> {
@@ -1384,7 +1375,6 @@ export class OrdersService {
     const testText = 'LPA:1$smdp.io$K2-1JL898-DKUTDC';
 
     try {
-      console.log('🔍 Testing QR code generation directly...');
       const qrDataUrl = await QRCode.toDataURL(testText, {
         width: 200,
         margin: 2,
@@ -1402,7 +1392,7 @@ export class OrdersService {
         message: 'QR code generation working correctly',
       };
     } catch (error) {
-      console.log('❌ QR code generation failed:', error);
+      this.logger.error('QR code generation failed', error.stack);
       return {
         success: false,
         error: error.message,
@@ -1472,53 +1462,161 @@ export class OrdersService {
   async completeWithCredits(
     orderId: string,
     userId: string,
-  ): Promise<OrderResponseDto> {
+    idempotencyKey?: string,
+    dto?: CompleteWithCreditsDto,
+  ): Promise<any> {
     const order = await this.orderRepository.findOne({
       where: { id: orderId, userId },
+      relations: ['packageTemplate'],
     });
 
     if (!order) {
       throw new NotFoundException('Order not found');
     }
 
-    if (order.amount_due_after_credits !== 0) {
-      throw new BadRequestException(
-        'Order has amount due - use Stripe payment instead',
+    if (idempotencyKey && order.paymentIntentId === idempotencyKey) {
+      if (order.status === OrderStatus.COMPLETED) {
+        return {
+          orderId: order.id,
+          status: 'PAID',
+          creditsCaptured: DecimalUtil.toString(
+            order.credits_applied_amount || 0,
+          ),
+          currency: order.currency,
+        };
+      }
+    }
+
+    const subtotalStr = DecimalUtil.toString(
+      order.subtotal_amount || order.amount,
+    );
+    const discountPromoStr = DecimalUtil.toString(
+      order.discount_from_promo_amount || 0,
+    );
+    const discountRewardStr = DecimalUtil.toString(
+      order.discount_from_reward_amount || 0,
+    );
+
+    let grandTotal = subtotalStr;
+    grandTotal = DecimalUtil.subtract(grandTotal, discountPromoStr);
+    grandTotal = DecimalUtil.subtract(grandTotal, discountRewardStr);
+    grandTotal = DecimalUtil.max(grandTotal, '0.00');
+
+    const userBalance = await this.creditsService.getBalance(userId);
+    const availableCredits = DecimalUtil.toString(userBalance.balance || 0);
+
+    this.logger.log(
+      `[COMPLETE-WITH-CREDITS] Order ${order.orderNumber}: grandTotal=${grandTotal}, availableCredits=${availableCredits}`,
+    );
+
+    const creditsNeeded = DecimalUtil.min(grandTotal, availableCredits);
+    const payableAfterCredits = DecimalUtil.subtract(
+      grandTotal,
+      availableCredits,
+    );
+
+    this.logger.log(
+      `[COMPLETE-WITH-CREDITS] Computed: creditsNeeded=${creditsNeeded}, payableAfterCredits=${payableAfterCredits}`,
+    );
+
+    if (DecimalUtil.compare(payableAfterCredits, '0.00') > 0) {
+      this.logger.warn(
+        `[COMPLETE-WITH-CREDITS] Insufficient credits for order ${order.orderNumber}: need ${grandTotal}, have ${availableCredits}, short ${payableAfterCredits}`,
       );
+
+      const errorResponse = {
+        statusCode: 409,
+        message: 'Order requires external payment',
+        orderId: order.id,
+        status: 'AWAITING_PAYMENT',
+        requires_external_payment: true,
+        amount_due: payableAfterCredits,
+        available_credits: availableCredits,
+        amount_needed: grandTotal,
+        currency: order.currency,
+      };
+
+      throw new ConflictException(errorResponse);
     }
 
-    if (order.status === OrderStatus.COMPLETED) {
-      // Idempotent - already completed
-      return this.toResponseDto(order);
-    }
+    this.logger.log(
+      `[COMPLETE-WITH-CREDITS] Credits sufficient! Proceeding to confirm ${creditsNeeded}`,
+    );
 
-    // Convert reservation to debit
-    if (order.credits_reservation_id) {
-      await this.creditsService.convertReservationToDebit(
-        order.credits_reservation_id,
-      );
-    }
+    let reservationId = order.credits_reservation_id;
 
-    // NOTE: Cashback is NOT accrued here for zero-amount orders
-    // CASHBACK_10 means cashback is applied AFTER payment, so zero-amount orders
-    // should not have CASHBACK_10 reward (they should use DISCOUNT_3 instead)
-    // If order has CASHBACK_10, it means user paid something, so webhook will handle accrual
-
-    if (order.reward_type === 'CASHBACK_10') {
+    if (!reservationId) {
       this.logger.log(
-        `[COMPLETE_WITH_CREDITS] Order ${order.orderNumber} has CASHBACK_10 - cashback will accrue when payment webhook fires (not in completeWithCredits)`,
+        `[COMPLETE-WITH-CREDITS] No existing reservation, creating new one for ${creditsNeeded}`,
+      );
+      const newReservation = await this.creditsService.reserveCredits(
+        userId,
+        orderId,
+        parseFloat(creditsNeeded),
+      );
+      reservationId = newReservation.id;
+      order.credits_reservation_id = reservationId;
+    } else {
+      this.logger.log(
+        `[COMPLETE-WITH-CREDITS] Using existing reservation ${reservationId}`,
       );
     }
 
-    // Mark order as completed
-    order.status = OrderStatus.COMPLETED;
-    order.paymentStatus = 'succeeded';
-    await this.orderRepository.save(order);
+    const creditsToCapture = creditsNeeded;
 
-    // Process eSIM activation if needed
-    // await this.processOrder(orderId);
+    try {
+      if (reservationId && !DecimalUtil.isZero(creditsToCapture)) {
+        await this.creditsService.confirmReservationWithIdempotency(
+          reservationId,
+          orderId,
+          idempotencyKey || `complete-${orderId}`,
+        );
+      }
 
-    return this.toResponseDto(order);
+      order.status = OrderStatus.PENDING;
+      order.paymentStatus = 'succeeded';
+      order.credits_applied_amount = parseFloat(creditsToCapture);
+      order.amount_due_after_credits = 0;
+      order.credits_reservation_id = reservationId;
+
+      if (idempotencyKey) {
+        order.paymentIntentId = idempotencyKey;
+      }
+
+      await this.orderRepository.save(order);
+
+      this.logger.log(
+        `Order ${order.orderNumber} completed with credits: ${creditsToCapture}, now processing eSIM...`,
+      );
+
+      await this.processOrder(orderId);
+
+      return {
+        orderId: order.id,
+        status: 'PAID',
+        creditsCaptured: creditsToCapture,
+        currency: order.currency,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Failed to complete order with credits, releasing reservation: ${error.message}`,
+      );
+
+      if (reservationId) {
+        try {
+          await this.creditsService.cancelReservationWithIdempotency(
+            reservationId,
+            `Order completion failed: ${error.message}`,
+          );
+        } catch (cancelError) {
+          this.logger.error(
+            `Failed to cancel reservation ${reservationId}: ${cancelError.message}`,
+          );
+        }
+      }
+
+      throw error;
+    }
   }
 
   /**
@@ -1612,19 +1710,9 @@ export class OrdersService {
       userId,
     );
 
-    // Create new reservation if credits applied
-    let reservation: any = null;
-    if (pricing.credits_applied > 0) {
-      reservation = await this.creditsService.reserveCredits(
-        userId,
-        orderId,
-        pricing.credits_applied,
-      );
-    }
-
-    // Update order
+    // Update order with pricing info (reservation will be created in completeWithCredits)
     order.credits_applied_amount = pricing.credits_applied;
-    order.credits_reservation_id = reservation?.id || null;
+    order.credits_reservation_id = null;
     order.amount_due_after_credits = pricing.amount_due;
 
     await this.orderRepository.save(order);
@@ -1713,16 +1801,16 @@ export class OrdersService {
       );
     }
 
-    // 3. Mark order completed
-    order.status = OrderStatus.COMPLETED;
+    // 3. Mark payment successful (but leave status as PENDING for processOrder)
     order.paymentStatus = 'succeeded';
     await this.orderRepository.save(order);
 
     this.logger.log(
-      `[FULFILLMENT] Order ${orderId} marked as COMPLETED, starting fulfillment`,
+      `[FULFILLMENT] Payment confirmed, starting fulfillment (order still PENDING)`,
     );
 
     // 4. Process eSIM activation, send emails, sync usage
+    // processOrder() will handle PENDING → PROCESSING → COMPLETED transitions
     try {
       await this.processOrder(orderId);
       this.logger.log(`[FULFILLMENT] Successfully processed order ${orderId}`);
@@ -1731,8 +1819,11 @@ export class OrdersService {
         `[FULFILLMENT] Failed to process order ${orderId}: ${error.message}`,
         error.stack,
       );
-      // Don't throw - order is already marked COMPLETED and cashback accrued
+      // Mark as COMPLETED anyway (payment succeeded, cashback accrued)
       // Fulfillment can be retried manually if needed
+      await this.orderRepository.update(orderId, {
+        status: OrderStatus.COMPLETED,
+      });
     }
   }
 

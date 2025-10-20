@@ -16,7 +16,6 @@ export class OcsService {
       const u = new URL(this.base); // will throw if base is invalid/empty
       if (this.token) u.searchParams.set('token', this.token);
       this.url = u.toString();
-      console.log('[OCS] URL:', this.url); // <-- check this in logs
     } catch (e) {
       console.error('[OCS] Invalid base URL or token:', {
         base: this.base,

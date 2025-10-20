@@ -14,6 +14,7 @@ export enum CreditLedgerType {
   DEBIT = 'DEBIT',
   CREDIT = 'CREDIT',
   RELEASE = 'RELEASE',
+  REFUND = 'REFUND',
   ADJUSTMENT = 'ADJUSTMENT',
   EXPIRE = 'EXPIRE',
 }

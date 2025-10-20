@@ -9,6 +9,7 @@ import {
   RawBodyRequest,
   Req,
   SetMetadata,
+  Logger,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -40,6 +41,8 @@ interface AuthenticatedRequest extends ExpressRequest {
 @Controller('payments')
 @UseGuards(AuthGuard('jwt'), JwtRolesGuard)
 export class PaymentsController {
+  private readonly logger = new Logger(PaymentsController.name);
+
   constructor(
     private readonly paymentsService: PaymentsService,
     private readonly ordersService: OrdersService,
@@ -145,9 +148,7 @@ export class PaymentsController {
     // Get the order
     const orderId = paymentIntent.metadata.orderId;
 
-    console.log(
-      `[PAYMENTS/CONFIRM] Processing successful payment for order ${orderId}, PI: ${paymentIntent.id}`,
-    );
+    this.logger.log(`Processing payment confirmation for order ${orderId}`);
 
     // CRITICAL FIX: Call handlePaymentSuccess (same as webhook)
     // This converts reservations, accrues cashback, and fulfills the order
@@ -157,10 +158,6 @@ export class PaymentsController {
     );
 
     const updatedOrder = await this.ordersService.findOne(orderId);
-
-    console.log(
-      `[PAYMENTS/CONFIRM] ✅ Order ${orderId} completed via /confirm endpoint`,
-    );
 
     return {
       success: true,
@@ -177,10 +174,6 @@ export class PaymentsController {
   ) {
     const payload = req.rawBody?.toString() || '';
 
-    console.log(
-      `[WEBHOOK] Received Stripe webhook, signature present: ${!!signature}`,
-    );
-
     try {
       const event = this.paymentsService.validateWebhookSignature(
         payload,
@@ -188,58 +181,44 @@ export class PaymentsController {
       );
 
       const eventObject = event.data.object as any;
-      console.log(
-        `[WEBHOOK] Received event type=${event.type} id=${eventObject.id || 'unknown'}`,
+      this.logger.log(
+        `Webhook: ${event.type} (${eventObject.id || 'unknown'})`,
       );
 
       switch (event.type) {
         case 'payment_intent.succeeded':
-          // Handle successful payment
           const paymentIntent = event.data.object as any;
-          console.log(
-            `[WEBHOOK] payment_intent.succeeded: pi=${paymentIntent.id} status=${paymentIntent.status} amount=${paymentIntent.amount}`,
-          );
 
           if (paymentIntent.metadata?.orderId) {
-            console.log(
-              `[WEBHOOK] Processing order ${paymentIntent.metadata.orderId} for PI ${paymentIntent.id}`,
+            this.logger.log(
+              `Processing payment success for order ${paymentIntent.metadata.orderId}`,
             );
 
-            // Convert credits reservation, issue cashback, mark order completed, fulfill eSIM
             await this.ordersService.handlePaymentSuccess(
               paymentIntent.metadata.orderId,
               paymentIntent.id, // Stripe Payment Intent ID
             );
-
-            console.log(
-              `[WEBHOOK] ✅ Order ${paymentIntent.metadata.orderId} completed (PI: ${paymentIntent.id})`,
-            );
           } else {
-            console.log(
-              `[WEBHOOK] ⚠️ No orderId in metadata for PI ${paymentIntent.id}`,
+            this.logger.warn(
+              `No orderId in metadata for PI ${paymentIntent.id}`,
             );
           }
           break;
         case 'payment_intent.payment_failed':
-          // Handle failed payment
-          console.log('❌ Payment failed:', event.data.object.id);
           const failedIntent = event.data.object as any;
           if (failedIntent.metadata?.orderId) {
-            // Release credits reservation
             await this.ordersService.handlePaymentFailed(
               failedIntent.metadata.orderId,
-            );
-            console.log(
-              `🔄 Credits reservation released for order ${failedIntent.metadata.orderId} (PI: ${failedIntent.id})`,
             );
           }
           break;
         default:
-          console.log(`ℹ️ Unhandled event type: ${event.type}`);
+          this.logger.debug(`Unhandled webhook event type: ${event.type}`);
       }
 
       return { received: true };
     } catch (error) {
+      this.logger.error(`Webhook error: ${error.message}`, error.stack);
       throw new BadRequestException(`Webhook error: ${error.message}`);
     }
   }
