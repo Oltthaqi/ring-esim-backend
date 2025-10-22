@@ -584,6 +584,24 @@ export class OrdersService {
       throw new BadRequestException('Cannot cancel a completed order');
     }
 
+    // Release reserved credits if any
+    if (order.credits_reservation_id) {
+      this.logger.log(
+        `Releasing credits reservation ${order.credits_reservation_id} for cancelled order ${id}`,
+      );
+      try {
+        await this.creditsService.releaseReservation(
+          order.credits_reservation_id,
+          `Order ${order.orderNumber} cancelled`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to release credits reservation ${order.credits_reservation_id}: ${error.message}`,
+        );
+        // Continue with cancellation even if credit release fails
+      }
+    }
+
     await this.orderRepository.update(id, { status: OrderStatus.CANCELLED });
     return this.toResponseDto(await this.findOne(id));
   }
