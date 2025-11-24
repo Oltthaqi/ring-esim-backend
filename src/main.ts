@@ -9,10 +9,10 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log', 'debug'],
   });
-  app.use(
-    '/api/calendly/webhook',
-    bodyParser.raw({ type: 'application/json' }),
-  );
+  const rawJsonMiddleware = bodyParser.raw({ type: 'application/json' });
+
+  app.use('/api/calendly/webhook', rawJsonMiddleware);
+  app.use('/api/payments/webhook', rawJsonMiddleware);
 
   app.setGlobalPrefix('api');
 
@@ -45,4 +45,4 @@ async function bootstrap() {
 
   await app.listen(process.env.PORT || 3000, process.env.HOST || '0.0.0.0');
 }
-bootstrap();
+void bootstrap();
