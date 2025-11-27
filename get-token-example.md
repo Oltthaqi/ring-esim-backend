@@ -38,3 +38,4 @@ Write-Output "Your token: $token"
 2. Get your token from login
 3. Set it in the authentication section
 4. Test the APIs directly
+adni
