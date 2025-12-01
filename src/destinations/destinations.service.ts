@@ -17,7 +17,7 @@ export class DestinationsService {
     private locationZoneRepo: Repository<LocationZone>,
   ) {}
 
-  // LIST all destinations (typed as local/regional/global) using ZoneName + countriesIso2
+  // LIST all destinations (typed as local/regional/special) using ZoneName + countriesIso2
   async getDestinations() {
     const zones = await this.locationZoneRepo.find({
       // IMPORTANT: use ZoneId (numeric) — this matches PackageTemplate.zoneId
@@ -26,11 +26,18 @@ export class DestinationsService {
 
     return (
       zones
-        // Skip zones with empty or null countriesIso2
-        .filter(
-          (zone) =>
-            Array.isArray(zone.countriesIso2) && zone.countriesIso2.length > 0,
-        )
+        // Skip zones with empty or null countriesIso2, and exclude global/globale/kudo/kuda zones
+        .filter((zone) => {
+          const hasCountries =
+            Array.isArray(zone.countriesIso2) && zone.countriesIso2.length > 0;
+          const nameLc = (zone.zoneName ?? '').toLowerCase();
+          const isGlobal =
+            nameLc.includes('global') ||
+            nameLc.includes('globale') ||
+            nameLc.includes('kudo') ||
+            nameLc.includes('kuda');
+          return hasCountries && !isGlobal;
+        })
         .map((zone) => {
           // De-dupe ISO2 codes; normalize to lowercase
           const uniqueIso2 = [
@@ -41,11 +48,13 @@ export class DestinationsService {
             ? [...new Set(zone.countryNames)]
             : [];
 
-          // Determine type
-          const nameLc = (zone.zoneName ?? '').toLowerCase();
-          let type: 'local' | 'regional' | 'global';
-          if (nameLc.includes('kuda') || nameLc.includes('kudo')) {
-            type = 'global';
+          // Determine type - check for special packages FIRST (before local/regional)
+          const nameLc = (zone.zoneName ?? '').toLowerCase().trim();
+          let type: 'local' | 'regional' | 'special';
+
+          // Check for special packages first (if title contains SPECIALE or SPECIAL anywhere)
+          if (nameLc.includes('speciale') || nameLc.includes('special')) {
+            type = 'special';
           } else if (uniqueIso2.length === 1) {
             type = 'local';
           } else {
@@ -87,14 +96,20 @@ export class DestinationsService {
           countryNames: names,
         };
       })
-      // ✅ only single-country zones for the requested ISO
-      .filter(
-        (z) =>
+      // ✅ only single-country zones for the requested ISO, exclude global/globale/kudo/kuda
+      .filter((z) => {
+        const nameLc = z.zoneName.toLowerCase();
+        const isGlobal =
+          nameLc.includes('global') ||
+          nameLc.includes('globale') ||
+          nameLc.includes('kudo') ||
+          nameLc.includes('kuda');
+        return (
           z.countriesIso2.includes(iso2) &&
           z.countriesIso2.length === 1 &&
-          !z.zoneName.toLowerCase().includes('kudo') && // optional: exclude global “KUDO”
-          !z.zoneName.toLowerCase().includes('kuda'),
-      );
+          !isGlobal
+        );
+      });
 
     if (zones.length === 0) {
       return {
@@ -185,9 +200,15 @@ export class DestinationsService {
     ];
     const nameLc = (z.zoneName ?? '').toLowerCase();
 
-    // Must be regional: more than one unique country, and NOT kudo/kuda
-    const isKudo = nameLc.includes('kudo') || nameLc.includes('kuda');
-    if (iso2List.length <= 1 || isKudo) {
+    // Exclude global/globale/kudo/kuda zones
+    const isGlobal =
+      nameLc.includes('global') ||
+      nameLc.includes('globale') ||
+      nameLc.includes('kudo') ||
+      nameLc.includes('kuda');
+
+    // Must be regional: more than one unique country, and NOT global
+    if (iso2List.length <= 1 || isGlobal) {
       return {
         region: { zoneId: Number(z.zoneId), title: z.zoneName ?? '' },
         items: [],

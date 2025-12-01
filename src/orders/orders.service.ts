@@ -1522,9 +1522,17 @@ export class OrdersService {
 
     const userBalance = await this.creditsService.getBalance(userId);
     const availableCredits = DecimalUtil.toString(userBalance.balance || 0);
+    const lifetimeEarned = Number(userBalance.lifetime_earned || 0);
+
+    // Guard: Users cannot use credits before reaching lifetime_earned > 5.00
+    if (lifetimeEarned <= 5.0) {
+      throw new BadRequestException(
+        `Credits cannot be used until you have earned more than €5.00 in lifetime credits. Current lifetime earned: €${lifetimeEarned.toFixed(2)}`,
+      );
+    }
 
     this.logger.log(
-      `[COMPLETE-WITH-CREDITS] Order ${order.orderNumber}: grandTotal=${grandTotal}, availableCredits=${availableCredits}`,
+      `[COMPLETE-WITH-CREDITS] Order ${order.orderNumber}: grandTotal=${grandTotal}, availableCredits=${availableCredits}, lifetime_earned=${lifetimeEarned.toFixed(2)}`,
     );
 
     const creditsNeeded = DecimalUtil.min(grandTotal, availableCredits);

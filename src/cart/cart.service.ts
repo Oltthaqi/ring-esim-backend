@@ -67,12 +67,21 @@ export class CartService {
     let credits_applied = 0;
 
     if (dto.creditsToUse && dto.creditsToUse > 0) {
-      // User wants to use credits - clamp to available and after_reward
-      credits_applied = Math.min(
-        dto.creditsToUse,
-        available_credits,
-        after_reward,
-      );
+      // Guard: Check if user has earned enough lifetime credits to use credits
+      const userBalance = await this.creditsService.getBalance(userId);
+      const lifetimeEarned = Number(userBalance.lifetime_earned || 0);
+
+      if (lifetimeEarned <= 5.0) {
+        // Don't allow credits to be used - set credits_applied to 0
+        credits_applied = 0;
+      } else {
+        // User wants to use credits - clamp to available and after_reward
+        credits_applied = Math.min(
+          dto.creditsToUse,
+          available_credits,
+          after_reward,
+        );
+      }
     }
 
     const amount_due = Math.max(0, this.round(after_reward - credits_applied));

@@ -129,10 +129,18 @@ export class CreditsService {
       );
 
       const available = Number(balanceRecord?.balance || 0);
+      const lifetimeEarned = Number(balanceRecord?.lifetime_earned || 0);
 
       this.logger.log(
-        `[RESERVE] Current balance for user ${userId}: €${available.toFixed(2)}`,
+        `[RESERVE] Current balance for user ${userId}: €${available.toFixed(2)}, lifetime_earned: €${lifetimeEarned.toFixed(2)}`,
       );
+
+      // Guard: Users cannot use credits before reaching lifetime_earned > 5.00
+      if (lifetimeEarned <= 5.0) {
+        throw new BadRequestException(
+          `Credits cannot be used until you have earned more than €5.00 in lifetime credits. Current lifetime earned: €${lifetimeEarned.toFixed(2)}`,
+        );
+      }
 
       if (available < amount) {
         throw new BadRequestException(
