@@ -88,4 +88,15 @@ export class CreateUserDto {
     description: 'The role of the user',
   })
   role: string;
+
+  @ApiProperty({
+    description: 'Optional referral code from the user who referred this user',
+    type: String,
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(6)
+  @MaxLength(6)
+  referral_code?: string;
 }

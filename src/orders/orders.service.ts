@@ -18,6 +18,7 @@ import { TopupOrderDto } from './dto/topup-order.dto';
 import { OcsService } from '../ocs/ocs.service';
 import { PackageTemplatesService } from '../package-template/package-template.service';
 import { UsersService } from '../users/users.service';
+import { UsersEntity } from '../users/entitites/users.entity';
 import { EsimAllocationService } from '../esims/esim-allocation.service';
 import { EmailService } from '../email/email.service';
 import { UsageService } from '../usage/usage.service';
@@ -36,6 +37,8 @@ export class OrdersService {
   constructor(
     @InjectRepository(Order)
     private readonly orderRepository: Repository<Order>,
+    @InjectRepository(UsersEntity)
+    private readonly usersRepository: Repository<UsersEntity>,
     private readonly ocsService: OcsService,
     private readonly packageTemplateService: PackageTemplatesService,
     private readonly usersService: UsersService,
@@ -216,6 +219,16 @@ export class OrdersService {
       await this.orderRepository.update(orderId, {
         status: OrderStatus.COMPLETED,
       });
+
+      // Handle referral rewards for first order
+      try {
+        await this.handleReferralRewards(orderId);
+      } catch (error) {
+        this.logger.warn(
+          `Failed to process referral rewards for order ${orderId}: ${error.message}`,
+        );
+        // Don't throw error here as order is already completed successfully
+      }
 
       // Create usage tracking record for the completed order
       try {
@@ -1319,6 +1332,117 @@ export class OrdersService {
     };
   }
 
+  /**
+   * Handle referral rewards for first order
+   * When a referred user completes their first order:
+   * - Invited user gets 30% of order total as credits
+   * - Inviter gets 30% of order total as credits
+   */
+  private async handleReferralRewards(orderId: string): Promise<void> {
+    const order = await this.orderRepository.findOne({
+      where: { id: orderId },
+      relations: ['user'],
+    });
+
+    if (!order || !order.user) {
+      this.logger.warn(
+        `Cannot process referral rewards: Order or user not found for order ${orderId}`,
+      );
+      return;
+    }
+
+    const userId = order.userId;
+
+    // Get user with referral information
+    const user = await this.usersRepository.findOne({
+      where: { id: userId },
+      select: ['id', 'referred_by_user_id'],
+    });
+
+    if (!user || !user.referred_by_user_id) {
+      // User was not referred, no rewards
+      return;
+    }
+
+    // Check if this is the user's first completed order
+    const completedOrdersCount = await this.orderRepository.count({
+      where: {
+        userId: userId,
+        status: OrderStatus.COMPLETED,
+      },
+    });
+
+    if (completedOrdersCount !== 1) {
+      // This is not the first completed order, skip rewards
+      this.logger.log(
+        `Skipping referral rewards for order ${orderId}: User ${userId} has ${completedOrdersCount} completed orders (not first order)`,
+      );
+      return;
+    }
+
+    // Calculate reward amount (30% of order total)
+    const orderTotal = Number(order.total_amount || order.amount || 0);
+    if (orderTotal <= 0) {
+      this.logger.warn(
+        `Cannot process referral rewards: Order ${orderId} has invalid total amount`,
+      );
+      return;
+    }
+
+    const rewardAmount = orderTotal * 0.3; // 30% of order total
+
+    // Verify inviter exists
+    const inviter = await this.usersRepository.findOne({
+      where: { id: user.referred_by_user_id },
+      select: ['id', 'email'],
+    });
+
+    if (!inviter) {
+      this.logger.warn(
+        `Cannot process referral rewards: Inviter ${user.referred_by_user_id} not found`,
+      );
+      return;
+    }
+
+    try {
+      // Give 30% to the invited user (person who made the order)
+      // Note: CreditLedgerType.CREDIT automatically updates both balance and lifetime_earned
+      await this.creditsService.addCredits(
+        userId,
+        rewardAmount,
+        CreditLedgerType.CREDIT, // This type ensures both balance and lifetime_earned are updated
+        orderId,
+        `Referral reward: 30% of first order (Order: ${order.orderNumber})`,
+        `referral-invited-${orderId}`, // Idempotency key
+      );
+
+      this.logger.log(
+        `[REFERRAL REWARD] Added €${rewardAmount.toFixed(2)} credits to invited user ${userId} for first order ${order.orderNumber} (both balance and lifetime_earned updated)`,
+      );
+
+      // Give 30% to the inviter (person who referred them)
+      // Note: CreditLedgerType.CREDIT automatically updates both balance and lifetime_earned
+      await this.creditsService.addCredits(
+        inviter.id,
+        rewardAmount,
+        CreditLedgerType.CREDIT, // This type ensures both balance and lifetime_earned are updated
+        orderId,
+        `Referral reward: 30% of referred user's first order (Order: ${order.orderNumber})`,
+        `referral-inviter-${orderId}`, // Idempotency key
+      );
+
+      this.logger.log(
+        `[REFERRAL REWARD] Added €${rewardAmount.toFixed(2)} credits to inviter ${inviter.id} for referring user ${userId} (Order: ${order.orderNumber}) (both balance and lifetime_earned updated)`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Failed to add referral rewards for order ${orderId}: ${error.message}`,
+        error.stack,
+      );
+      // Don't throw - we don't want to fail the order completion if rewards fail
+    }
+  }
+
   private async sendOrderCompletionEmail(orderId: string): Promise<void> {
     const order = await this.orderRepository.findOne({
       where: { id: orderId },
@@ -1524,10 +1648,10 @@ export class OrdersService {
     const availableCredits = DecimalUtil.toString(userBalance.balance || 0);
     const lifetimeEarned = Number(userBalance.lifetime_earned || 0);
 
-    // Guard: Users cannot use credits before reaching lifetime_earned > 5.00
-    if (lifetimeEarned <= 5.0) {
+    // Guard: Users cannot use credits before reaching lifetime_earned > 7.00
+    if (lifetimeEarned <= 7.0) {
       throw new BadRequestException(
-        `Credits cannot be used until you have earned more than €5.00 in lifetime credits. Current lifetime earned: €${lifetimeEarned.toFixed(2)}`,
+        `Credits cannot be used until you have earned more than €7.00 in lifetime credits. Current lifetime earned: €${lifetimeEarned.toFixed(2)}`,
       );
     }
 

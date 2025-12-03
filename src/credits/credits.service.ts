@@ -135,10 +135,10 @@ export class CreditsService {
         `[RESERVE] Current balance for user ${userId}: €${available.toFixed(2)}, lifetime_earned: €${lifetimeEarned.toFixed(2)}`,
       );
 
-      // Guard: Users cannot use credits before reaching lifetime_earned > 5.00
-      if (lifetimeEarned <= 5.0) {
+      // Guard: Users cannot use credits before reaching lifetime_earned > 7.00
+      if (lifetimeEarned <= 7.0) {
         throw new BadRequestException(
-          `Credits cannot be used until you have earned more than €5.00 in lifetime credits. Current lifetime earned: €${lifetimeEarned.toFixed(2)}`,
+          `Credits cannot be used until you have earned more than €7.00 in lifetime credits. Current lifetime earned: €${lifetimeEarned.toFixed(2)}`,
         );
       }
 

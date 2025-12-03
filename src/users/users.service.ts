@@ -20,6 +20,42 @@ export class UsersService {
     return Math.floor(Math.random() * (max - min + 1)) + min;
   }
 
+  /**
+   * Generates a unique 6-character alphanumeric referral code
+   */
+  private async generateReferralCode(): Promise<string> {
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let code = '';
+    let isUnique = false;
+    let attempts = 0;
+    const maxAttempts = 100;
+
+    while (!isUnique && attempts < maxAttempts) {
+      code = '';
+      for (let i = 0; i < 6; i++) {
+        code += characters.charAt(
+          Math.floor(Math.random() * characters.length),
+        );
+      }
+
+      // Check if code already exists
+      const existingUser = await this.usersRepository.findOne({
+        where: { referral_code: code },
+      });
+
+      if (!existingUser) {
+        isUnique = true;
+      }
+      attempts++;
+    }
+
+    if (!isUnique || !code) {
+      throw new Error('Failed to generate unique referral code after multiple attempts');
+    }
+
+    return code;
+  }
+
   async register(
     userDto: Partial<CreateUserDto>,
     cryptedPassword?: string,
@@ -33,11 +69,30 @@ export class UsersService {
       cryptedPassword = await bcrypt.hash(userDto.password, salt);
     }
 
+    // Generate unique referral code for the new user
+    const referralCode = await this.generateReferralCode();
+
+    // Handle referral tracking if a referral code is provided
+    let referredByUserId: string | null = null;
+    if (userDto.referral_code) {
+      const referrer = await this.usersRepository.findOne({
+        where: { referral_code: userDto.referral_code.toUpperCase() },
+      });
+
+      if (referrer) {
+        referredByUserId = referrer.id;
+      }
+      // Note: We don't throw an error if referral code is invalid,
+      // we just don't set the referred_by_user_id
+    }
+
     const user = this.usersRepository.create({
       ...userDto,
       password: cryptedPassword,
       is_verified: userDto.is_verified ?? false,
       role: userDto.role ? (userDto.role as Role) : undefined,
+      referral_code: referralCode,
+      referred_by_user_id: referredByUserId,
     });
 
     const registeredUser = await this.usersRepository.save(user);
@@ -50,6 +105,7 @@ export class UsersService {
         'last_name',
         'email',
         'phone_number',
+        'referral_code',
         'created_at',
         'updated_at',
       ],
@@ -111,6 +167,7 @@ export class UsersService {
         'is_deleted',
         'status',
         'role',
+        'referral_code',
       ],
     });
 

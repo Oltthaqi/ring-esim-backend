@@ -71,7 +71,7 @@ export class CartService {
       const userBalance = await this.creditsService.getBalance(userId);
       const lifetimeEarned = Number(userBalance.lifetime_earned || 0);
 
-      if (lifetimeEarned <= 5.0) {
+      if (lifetimeEarned <= 7.0) {
         // Don't allow credits to be used - set credits_applied to 0
         credits_applied = 0;
       } else {

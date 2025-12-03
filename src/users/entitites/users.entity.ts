@@ -3,6 +3,8 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinColumn,
+  ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
@@ -105,6 +107,26 @@ export class UsersEntity {
     enum: Role,
   })
   role: Role;
+
+  @Column({ type: 'varchar', length: 6, nullable: true, unique: true })
+  @ApiProperty({
+    description: 'The referral code of the user',
+    type: String,
+  })
+  referral_code: string;
+
+  @Column({ name: 'referred_by_user_id', type: 'char', length: 36, nullable: true })
+  @ApiProperty({
+    description: 'The user ID who referred this user',
+    type: String,
+    required: false,
+  })
+  referred_by_user_id: string | null;
+
+  @ManyToOne(() => UsersEntity, { nullable: true })
+  @JoinColumn({ name: 'referred_by_user_id' })
+  referred_by_user: UsersEntity;
+
   @OneToMany(() => NotificationsEntity, (notification) => notification.user)
   notifications: NotificationsEntity[];
 }
