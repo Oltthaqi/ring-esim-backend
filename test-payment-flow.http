@@ -1,0 +1,84 @@
+# Test Flow (Development Mode - No Stripe Required)
+# Use this file with REST Client extension in VS Code or copy to Postman
+
+### Variables
+@baseUrl = http://localhost:3000/api
+@token = YOUR_JWT_TOKEN_HERE
+
+### 1. Create Order (No payment required)
+POST {{baseUrl}}/orders
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "packageTemplateId": "15a8ddf5-d49b-4abf-a174-86d289d3e30a",
+  "orderType": "one_time",
+  "amount": 1.00,
+  "currency": "USD"
+}
+
+### 2. Get Order Status (check if created correctly)
+GET {{baseUrl}}/orders/REPLACE_WITH_ORDER_ID_FROM_STEP_1
+Authorization: Bearer {{token}}
+
+### 3. Manually Process Order (simulates successful payment + eSIM purchase)
+POST {{baseUrl}}/orders/REPLACE_WITH_ORDER_ID_FROM_STEP_1/process
+Authorization: Bearer {{token}}
+
+### 4. Check Final Order (should have eSIM details now)
+GET {{baseUrl}}/orders/REPLACE_WITH_ORDER_ID_FROM_STEP_1
+Authorization: Bearer {{token}}
+
+### 5. Test OCS Connection (verify API is working)
+POST {{baseUrl}}/orders/test-ocs
+Authorization: Bearer {{token}}
+
+###########################
+# TOP-UP TESTING
+###########################
+
+### 6. Create Top-up Order (add package to existing subscriber)
+POST {{baseUrl}}/orders/topup
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "packageTemplateId": "234593",
+  "subscriberId": 28345617,
+  "amount": 5.99,
+  "currency": "USD",
+  "reportUnitsPreviousPackage": true,
+  "validityPeriod": 30
+}
+
+### 7. Process Top-up Order (development - no payment)
+POST {{baseUrl}}/orders/REPLACE_WITH_TOPUP_ORDER_ID/topup-process
+Authorization: Bearer {{token}}
+
+### 8. Check Top-up Result
+GET {{baseUrl}}/orders/REPLACE_WITH_TOPUP_ORDER_ID
+Authorization: Bearer {{token}}
+
+###########################
+# STRIPE TESTING (For Later)
+###########################
+
+### A. Create Payment Intent (when ready for Stripe)
+# POST {{baseUrl}}/payments/create-intent
+# Authorization: Bearer {{token}}
+# Content-Type: application/json
+# 
+# {
+#   "orderId": "REPLACE_WITH_ORDER_ID",
+#   "amount": 1.00,
+#   "currency": "USD"
+# }
+
+### B. Confirm Payment (when ready for Stripe)
+# POST {{baseUrl}}/payments/confirm
+# Authorization: Bearer {{token}}
+# Content-Type: application/json
+# 
+# {
+#   "paymentIntentId": "REPLACE_WITH_PAYMENT_INTENT_ID"
+# }

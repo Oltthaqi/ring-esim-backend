@@ -1,0 +1,59 @@
+<html lang='en'>
+  <head>
+    <meta charset='UTF-8' />
+    <title>You’re Invited!</title>
+    <style>
+      body {
+        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+        background-color: #f9fafb;
+        margin: 0;
+        padding: 40px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 100vh;
+      }
+      .email-wrapper {
+        background: #ffffff;
+        padding: 30px 40px;
+        border-radius: 10px;
+        box-shadow: 0px 4px 12px rgba(0, 0, 0, 0.1);
+        text-align: center;
+        max-width: 500px;
+        width: 100%;
+      }
+      h1 {
+        color: #333333;
+        margin-bottom: 24px;
+        font-size: 24px;
+      }
+      p {
+        color: #666666;
+        font-size: 16px;
+        line-height: 1.5;
+        margin-bottom: 30px;
+      }
+      .button {
+        display: inline-block;
+        padding: 14px 28px;
+        background-color: #4f46e5;
+        color: #ffffff;
+        text-decoration: none;
+        font-size: 16px;
+        font-weight: bold;
+        border-radius: 6px;
+        transition: background-color 0.3s ease;
+      }
+      .button:hover {
+        background-color: #4338ca;
+      }
+    </style>
+  </head>
+  <body>
+    <div class='email-wrapper'>
+      <h1>You’re Invited to join {{company_name}}!</h1>
+      <p>Click the button below to accept your invitation and join us.</p>
+      <a href='{{inviteLink}}' class='button'>Accept Invite</a>
+    </div>
+  </body>
+</html>
