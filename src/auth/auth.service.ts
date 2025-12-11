@@ -481,9 +481,12 @@ export class AuthService {
 
     if (user) {
       this.logger.log(`[VALIDATE GOOGLE USER] Existing user found: ${user.email} (ID: ${user.id})`);
-      // Ensure role is set
+      // Ensure role is set; if missing, set and persist
       if (!(user as any).role) {
         (user as any).role = Role.USER;
+        await this.userService.updateUser(user.id, {
+          role: Role.USER,
+        } as any);
       }
       return user;
     }

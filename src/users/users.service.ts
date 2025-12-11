@@ -90,7 +90,7 @@ export class UsersService {
       ...userDto,
       password: cryptedPassword,
       is_verified: userDto.is_verified ?? false,
-      role: userDto.role ? (userDto.role as Role) : undefined,
+      role: userDto.role ? (userDto.role as Role) : Role.USER,
       referral_code: referralCode,
       referred_by_user_id: referredByUserId,
     });
@@ -105,6 +105,8 @@ export class UsersService {
         'last_name',
         'email',
         'phone_number',
+        'role',
+        'is_verified',
         'referral_code',
         'created_at',
         'updated_at',
