@@ -37,8 +37,7 @@ import appleSignin from 'apple-signin-auth';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private readonly DEFAULT_ACCESS_TOKEN_EXPIRATION = 12 * 60 * 60; // 12 hours to seconds
-  private readonly DEFAULT_REFRESH_TOKEN_EXPIRATION = 24 * 60 * 60; // 24 hours to seconds
+  private readonly DEFAULT_ACCESS_TOKEN_EXPIRATION = 20 * 24 * 60 * 60; // 20 days in seconds (1,728,000)
   private readonly kms: AWS.KMS;
 
   constructor(
@@ -174,27 +173,11 @@ export class AuthService {
       throw new BadRequestException('Invalid credentials');
     }
 
-    const payload = {
-      uuid: existingUser.id,
-      email: existingUser.email,
-      fullName: `${existingUser.first_name} ${existingUser.last_name}`,
-      is_verified: existingUser.is_verified,
-      role: existingUser.role,
-    };
-
-    const accessToken = this.jwtService.sign(payload, {
-      secret: this.configService.get('JWT_SECRET'),
-      expiresIn: '24h',
-    });
-
-    const refreshToken = this.jwtService.sign(payload, {
-      secret: this.configService.get('JWT_SECRET'),
-      expiresIn: '30d',
-    });
-
+    // Use the same token generation method as OAuth logins (20 days, no refresh token)
+    const tokens = await this.getSessionTokens(existingUser);
     return {
-      accessToken,
-      refreshToken,
+      accessToken: tokens.accessToken,
+      // No refresh token
     };
   }
 
@@ -313,39 +296,22 @@ export class AuthService {
     user: UsersEntity,
     accessTokenExpiration?: number,
   ) {
-    // const roles =
-    //   user.roles?.map((role) => {
-    //     return {
-    //       id: role.id,
-    //       name: role.name,
-    //       description: role.description,
-    //     };
-    //   }) || [];
-
-    return new TokenDto(
-      await this.generateJwt(
-        {
-          uuid: user.id,
-          email: user.email,
-          fullName: `${user.first_name} ${user.last_name}`,
-          is_verified: user.is_verified,
-          role: (user as any).role ?? Role.USER,
-        },
-        AuthService.getExpirationDate(
-          accessTokenExpiration ?? this.DEFAULT_ACCESS_TOKEN_EXPIRATION,
-        ),
-      ),
-      await this.generateJwt(
-        {
-          uuid: user.id,
-          email: user.email,
-          fullName: `${user.first_name} ${user.last_name}`,
-          is_verified: user.is_verified,
-          role: (user as any).role ?? Role.USER,
-        },
-        AuthService.getExpirationDate(this.DEFAULT_REFRESH_TOKEN_EXPIRATION),
+    // Generate only access token (20 days expiration)
+    // No refresh token needed for mobile apps
+    const accessToken = await this.generateJwt(
+      {
+        uuid: user.id,
+        email: user.email,
+        fullName: `${user.first_name} ${user.last_name}`,
+        is_verified: user.is_verified,
+        role: (user as any).role ?? Role.USER,
+      },
+      AuthService.getExpirationDate(
+        accessTokenExpiration ?? this.DEFAULT_ACCESS_TOKEN_EXPIRATION,
       ),
     );
+
+    return new TokenDto(accessToken, ''); // Empty string for refreshToken (deprecated)
   }
 
   private async generateJwt(data: Record<string, unknown>, expiration: number) {

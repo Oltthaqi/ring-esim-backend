@@ -142,8 +142,12 @@ export class AuthController {
     @Query('format') format?: string,
   ): Promise<void | object> {
     this.logger.log('[GOOGLE CALLBACK] Callback endpoint hit');
-    this.logger.debug(`[GOOGLE CALLBACK] Query params: state=${state}, format=${format}`);
-    this.logger.debug(`[GOOGLE CALLBACK] Full query: ${JSON.stringify(req.query)}`);
+    this.logger.debug(
+      `[GOOGLE CALLBACK] Query params: state=${state}, format=${format}`,
+    );
+    this.logger.debug(
+      `[GOOGLE CALLBACK] Full query: ${JSON.stringify(req.query)}`,
+    );
 
     const user = req.user as UsersEntity;
     if (!user) {
@@ -151,7 +155,9 @@ export class AuthController {
       throw new UnauthorizedException('User not found in request');
     }
 
-    this.logger.log(`[GOOGLE CALLBACK] User found: ${user.email} (ID: ${user.id})`);
+    this.logger.log(
+      `[GOOGLE CALLBACK] User found: ${user.email} (ID: ${user.id})`,
+    );
 
     const tokens = await this.authService.loginGoogle(user);
     this.logger.log('[GOOGLE CALLBACK] Tokens generated successfully');
@@ -163,11 +169,15 @@ export class AuthController {
     const callbackUrl = this.configService.get<string>('GOOGLE_CALLBACK_URL');
 
     this.logger.debug(`[GOOGLE CALLBACK] Config - callbackUrl: ${callbackUrl}`);
-    this.logger.debug(`[GOOGLE CALLBACK] Config - mobileRedirectUrl: ${mobileRedirectUrl || 'NOT SET'}`);
+    this.logger.debug(
+      `[GOOGLE CALLBACK] Config - mobileRedirectUrl: ${mobileRedirectUrl || 'NOT SET'}`,
+    );
 
     // Force JSON format if requested (for web API calls)
     if (format === 'json') {
-      this.logger.log('[GOOGLE CALLBACK] Format=json requested, returning JSON');
+      this.logger.log(
+        '[GOOGLE CALLBACK] Format=json requested, returning JSON',
+      );
       return res.json(tokens);
     }
 
@@ -188,14 +198,19 @@ export class AuthController {
     const userAgentMobileCheck = userAgent.includes('Mobile');
     const userAgentReactNativeCheck = userAgent.includes('ReactNative');
     const refererExpCheck = referer.includes('exp://');
-    const refererAppCheck = referer.includes('internetkudo://') || referer.includes('yourapp://');
+    const refererAppCheck =
+      referer.includes('internetkudo://') || referer.includes('yourapp://');
 
     this.logger.debug(`[GOOGLE CALLBACK] Mobile detection checks:`);
     this.logger.debug(`  - state === 'mobile': ${stateCheck}`);
     this.logger.debug(`  - query.mobile === 'true': ${queryMobileCheck}`);
     this.logger.debug(`  - User-Agent includes 'Expo': ${userAgentExpoCheck}`);
-    this.logger.debug(`  - User-Agent includes 'Mobile': ${userAgentMobileCheck}`);
-    this.logger.debug(`  - User-Agent includes 'ReactNative': ${userAgentReactNativeCheck}`);
+    this.logger.debug(
+      `  - User-Agent includes 'Mobile': ${userAgentMobileCheck}`,
+    );
+    this.logger.debug(
+      `  - User-Agent includes 'ReactNative': ${userAgentReactNativeCheck}`,
+    );
     this.logger.debug(`  - Referer includes 'exp://': ${refererExpCheck}`);
     this.logger.debug(`  - Referer includes app scheme: ${refererAppCheck}`);
 
@@ -208,28 +223,37 @@ export class AuthController {
       refererExpCheck ||
       refererAppCheck;
 
-    this.logger.log(`[GOOGLE CALLBACK] Mobile request detected: ${isMobileRequest}`);
+    this.logger.log(
+      `[GOOGLE CALLBACK] Mobile request detected: ${isMobileRequest}`,
+    );
 
     // If mobile redirect URL is configured and this is a mobile request, redirect to app
     if (mobileRedirectUrl && isMobileRequest) {
-      this.logger.log(`[GOOGLE CALLBACK] Redirecting to mobile app: ${mobileRedirectUrl}`);
-      
-      // Redirect to mobile app with tokens in URL
+      this.logger.log(
+        `[GOOGLE CALLBACK] Redirecting to mobile app: ${mobileRedirectUrl}`,
+      );
+
+      // Redirect to mobile app with token in URL
       const redirectUrl = new URL(mobileRedirectUrl);
       redirectUrl.searchParams.set('accessToken', tokens.accessToken);
-      redirectUrl.searchParams.set('refreshToken', tokens.refreshToken);
       redirectUrl.searchParams.set('success', 'true');
 
       const finalRedirectUrl = redirectUrl.toString();
-      this.logger.debug(`[GOOGLE CALLBACK] Final redirect URL (without tokens in log for security)`);
-      this.logger.log(`[GOOGLE CALLBACK] Redirecting to mobile app with tokens in URL params`);
+      this.logger.debug(
+        `[GOOGLE CALLBACK] Final redirect URL (without tokens in log for security)`,
+      );
+      this.logger.log(
+        `[GOOGLE CALLBACK] Redirecting to mobile app with tokens in URL params`,
+      );
 
       return res.redirect(finalRedirectUrl);
     }
 
     // Default: return JSON for web requests
     if (!mobileRedirectUrl) {
-      this.logger.warn('[GOOGLE CALLBACK] GOOGLE_MOBILE_REDIRECT_URL not configured, returning JSON');
+      this.logger.warn(
+        '[GOOGLE CALLBACK] GOOGLE_MOBILE_REDIRECT_URL not configured, returning JSON',
+      );
     } else if (!isMobileRequest) {
       this.logger.log('[GOOGLE CALLBACK] Not a mobile request, returning JSON');
     }
@@ -241,7 +265,8 @@ export class AuthController {
   @ApiOperation({ summary: 'Apple Sign In - Verify identity token' })
   @ApiResponse({
     status: 200,
-    description: 'Returns access token and refresh token after verifying Apple identity token',
+    description:
+      'Returns access token and refresh token after verifying Apple identity token',
     type: TokenDto,
   })
   @ApiResponse({
@@ -250,7 +275,7 @@ export class AuthController {
   })
   async appleLogin(@Body() appleSignInDto: AppleSignInDto): Promise<TokenDto> {
     this.logger.log('[APPLE LOGIN] Apple sign in request received');
-    
+
     if (!appleSignInDto.identityToken) {
       this.logger.error('[APPLE LOGIN] Identity token is missing');
       throw new BadRequestException('Identity token is required');
