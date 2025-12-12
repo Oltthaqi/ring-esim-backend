@@ -50,7 +50,9 @@ export class UsersService {
     }
 
     if (!isUnique || !code) {
-      throw new Error('Failed to generate unique referral code after multiple attempts');
+      throw new Error(
+        'Failed to generate unique referral code after multiple attempts',
+      );
     }
 
     return code;
@@ -287,6 +289,7 @@ export class UsersService {
     id: string,
     userDto: UpdateUserDto,
   ): Promise<UsersEntity | null> {
+    console.log('userDto', userDto);
     const user = await this.getUserByForVerifyId(id);
     if (!user) {
       throw new NotFoundException('User not found');
