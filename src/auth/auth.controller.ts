@@ -233,12 +233,23 @@ export class AuthController {
         `[GOOGLE CALLBACK] Redirecting to mobile app: ${mobileRedirectUrl}`,
       );
 
-      // Redirect to mobile app with token in URL
-      const redirectUrl = new URL(mobileRedirectUrl);
-      redirectUrl.searchParams.set('accessToken', tokens.accessToken);
-      redirectUrl.searchParams.set('success', 'true');
+      // Construct deep link URL manually (URL constructor doesn't work with custom schemes like internetkudo://)
+      // Deep links use format: scheme://path?param1=value1&param2=value2
+      let finalRedirectUrl: string;
 
-      const finalRedirectUrl = redirectUrl.toString();
+      try {
+        // Try to use URL constructor for standard URLs (http/https)
+        const url = new URL(mobileRedirectUrl);
+        url.searchParams.set('accessToken', tokens.accessToken);
+        url.searchParams.set('success', 'true');
+        finalRedirectUrl = url.toString();
+      } catch {
+        // If URL constructor fails, it's likely a deep link (custom scheme)
+        // Manually construct the URL with query parameters
+        const separator = mobileRedirectUrl.includes('?') ? '&' : '?';
+        finalRedirectUrl = `${mobileRedirectUrl}${separator}accessToken=${encodeURIComponent(tokens.accessToken)}&success=true`;
+      }
+
       this.logger.debug(
         `[GOOGLE CALLBACK] Final redirect URL (without tokens in log for security)`,
       );
