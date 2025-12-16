@@ -6,6 +6,12 @@ import { Usage } from '../usage/entities/usage.entity';
 import { Order, OrderStatus } from '../orders/entities/order.entity';
 import { PackageTemplate } from '../package-template/entities/package-template.entity';
 import {
+  PromoCode,
+  PromoCodeStatus,
+} from '../promo-codes/entities/promo-code.entity';
+import { LocationZone } from '../location-zone/entities/location-zone.entity';
+import { Status } from '../common/enums/status.enum';
+import {
   DashboardStatsDto,
   MoneyFlowResponseDto,
   MoneyFlowDataPointDto,
@@ -13,6 +19,10 @@ import {
   CountryUsageDto,
   TopEsimsResponseDto,
   TopEsimDto,
+  CouponStatsDto,
+  EsimStatsDto,
+  OrderStatsDto,
+  UserStatsDto,
 } from './dto/stats-response.dto';
 import { TimePeriod } from './dto/stats-query.dto';
 
@@ -27,6 +37,10 @@ export class StatsService {
     private orderRepository: Repository<Order>,
     @InjectRepository(PackageTemplate)
     private packageTemplateRepository: Repository<PackageTemplate>,
+    @InjectRepository(PromoCode)
+    private promoCodeRepository: Repository<PromoCode>,
+    @InjectRepository(LocationZone)
+    private locationZoneRepository: Repository<LocationZone>,
   ) {}
 
   async getDashboardStats(): Promise<DashboardStatsDto> {
@@ -313,5 +327,159 @@ export class StatsService {
     });
 
     return { data };
+  }
+
+  async getCouponStats(): Promise<CouponStatsDto> {
+    const now = new Date();
+
+    // Total coupons
+    const totalCoupons = await this.promoCodeRepository.count();
+
+    // Active coupons: status = ACTIVE AND (end_at IS NULL OR end_at > NOW)
+    const activeCoupons = await this.promoCodeRepository
+      .createQueryBuilder('promo_code')
+      .where('promo_code.status = :status', { status: PromoCodeStatus.ACTIVE })
+      .andWhere('(promo_code.end_at IS NULL OR promo_code.end_at > :now)', {
+        now,
+      })
+      .getCount();
+
+    // Expired coupons: status = INACTIVE OR (status = ACTIVE AND end_at IS NOT NULL AND end_at < NOW)
+    const expiredCoupons = await this.promoCodeRepository
+      .createQueryBuilder('promo_code')
+      .where(
+        'promo_code.status = :inactiveStatus OR (promo_code.status = :activeStatus AND promo_code.end_at IS NOT NULL AND promo_code.end_at < :now)',
+        {
+          inactiveStatus: PromoCodeStatus.INACTIVE,
+          activeStatus: PromoCodeStatus.ACTIVE,
+          now,
+        },
+      )
+      .getCount();
+
+    // Most used coupon: get the promo code code that appears most in orders
+    const mostUsedResult = await this.orderRepository
+      .createQueryBuilder('order')
+      .select('order.promo_code_code', 'code')
+      .addSelect('COUNT(order.id)', 'usage_count')
+      .where('order.promo_code_code IS NOT NULL')
+      .andWhere('order.promo_code_code != :empty', { empty: '' })
+      .groupBy('order.promo_code_code')
+      .orderBy('usage_count', 'DESC')
+      .limit(1)
+      .getRawOne();
+
+    const mostUsedCoupon = mostUsedResult?.code || null;
+
+    return {
+      totalCoupons,
+      activeCoupons,
+      expiredCoupons,
+      mostUsedCoupon,
+    };
+  }
+
+  async getEsimStats(): Promise<EsimStatsDto> {
+    const now = new Date();
+
+    // Total locations (count distinct location zones)
+    const totalLocations = await this.locationZoneRepository.count();
+
+    // Total packages (count package templates)
+    const totalPackages = await this.packageTemplateRepository.count();
+
+    // Active eSIMs (from usage where status is active or isActive is true)
+    const activeEsims = await this.usageRepository.count({
+      where: [{ status: 'active' }, { isActive: true }],
+    });
+
+    // eSIMs expiring soon: packageEndDate is not null and packageEndDate <= today
+    // (meaning expired or expiring today)
+    const esimsExpiringSoon = await this.usageRepository
+      .createQueryBuilder('usage')
+      .where('usage.packageEndDate IS NOT NULL')
+      .andWhere('usage.packageEndDate <= :now', { now })
+      .getCount();
+
+    return {
+      totalLocations,
+      totalPackages,
+      activeEsims,
+      esimsExpiringSoon,
+    };
+  }
+
+  async getOrderStats(): Promise<OrderStatsDto> {
+    // Total orders
+    const totalOrders = await this.orderRepository.count();
+
+    // Successful orders (status = COMPLETED)
+    const successfulOrders = await this.orderRepository.count({
+      where: { status: OrderStatus.COMPLETED },
+    });
+
+    // Pending orders (status = PENDING or PROCESSING)
+    const pendingOrders = await this.orderRepository.count({
+      where: [
+        { status: OrderStatus.PENDING },
+        { status: OrderStatus.PROCESSING },
+      ],
+    });
+
+    // Failed orders (status = FAILED or CANCELLED)
+    const failedOrders = await this.orderRepository.count({
+      where: [
+        { status: OrderStatus.FAILED },
+        { status: OrderStatus.CANCELLED },
+      ],
+    });
+
+    return {
+      totalOrders,
+      successfulOrders,
+      pendingOrders,
+      failedOrders,
+    };
+  }
+
+  async getUserStats(): Promise<UserStatsDto> {
+    const now = new Date();
+    const sevenDaysAgo = new Date(now);
+    sevenDaysAgo.setDate(now.getDate() - 7);
+
+    // Total users (excluding deleted)
+    const totalUsers = await this.usersRepository.count({
+      where: { is_deleted: false },
+    });
+
+    // New users (created within last 7 days)
+    const newUsers = await this.usersRepository
+      .createQueryBuilder('user')
+      .where('user.is_deleted = :deleted', { deleted: false })
+      .andWhere('user.created_at >= :sevenDaysAgo', { sevenDaysAgo })
+      .getCount();
+
+    // Active users
+    const activeUsers = await this.usersRepository.count({
+      where: {
+        is_deleted: false,
+        status: Status.ACTIVE,
+      },
+    });
+
+    // Inactive users
+    const inactiveUsers = await this.usersRepository.count({
+      where: {
+        is_deleted: false,
+        status: Status.INACTIVE,
+      },
+    });
+
+    return {
+      totalUsers,
+      newUsers,
+      activeUsers,
+      inactiveUsers,
+    };
   }
 }
