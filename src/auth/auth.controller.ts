@@ -199,7 +199,7 @@ export class AuthController {
     const userAgentReactNativeCheck = userAgent.includes('ReactNative');
     const refererExpCheck = referer.includes('exp://');
     const refererAppCheck =
-      referer.includes('internetkudo://') || referer.includes('yourapp://');
+      referer.includes('ringesim://') || referer.includes('yourapp://');
 
     this.logger.debug(`[GOOGLE CALLBACK] Mobile detection checks:`);
     this.logger.debug(`  - state === 'mobile': ${stateCheck}`);
@@ -233,7 +233,7 @@ export class AuthController {
         `[GOOGLE CALLBACK] Redirecting to mobile app: ${mobileRedirectUrl}`,
       );
 
-      // Construct deep link URL manually (URL constructor doesn't work with custom schemes like internetkudo://)
+      // Construct deep link URL manually (URL constructor doesn't work with custom schemes like ringesim://)
       // Deep links use format: scheme://path?param1=value1&param2=value2
       let finalRedirectUrl: string;
 
@@ -257,7 +257,7 @@ export class AuthController {
         `[GOOGLE CALLBACK] Redirecting to mobile app with tokens in URL params`,
       );
 
-      // For deep links (custom schemes like internet_kudo://), we need to use
+      // For deep links (custom schemes like ring_esim://), we need to use
       // an HTML page with JavaScript redirect because browsers/mobile apps
       // handle custom schemes better this way
       // Use window.location.replace() to avoid adding to history and prevent

@@ -7,6 +7,6 @@ export default registerAs('appleOAuth', () => ({
   privateKey: process.env.APPLE_PRIVATE_KEY, // .p8 file content
   callbackUrl: process.env.APPLE_CALLBACK_URL,
   mobileRedirectUrl:
-    process.env.APPLE_MOBILE_REDIRECT_URL || 'internetkudo://oauth/callback',
+    process.env.APPLE_MOBILE_REDIRECT_URL || 'ringesim://oauth/callback',
 }));
 

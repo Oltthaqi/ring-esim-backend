@@ -389,7 +389,7 @@ export class OrdersService {
           packageTemplateId: parseInt(
             order.packageTemplate?.packageTemplateId || '0',
           ),
-          accountForSubs: 4215, // Your actual account ID
+          accountForSubs: 2582, // Your actual account ID
         },
       };
 
@@ -632,7 +632,7 @@ export class OrdersService {
       // Test with a simple package template list request
       const testPayload = {
         listPrepaidPackageTemplate: {
-          resellerId: 567,
+          resellerId: 590,
         },
       };
 

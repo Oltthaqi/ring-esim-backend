@@ -74,6 +74,7 @@ export class EmailService {
     <p>Hi ${email},</p>
     <p>Your verification code is: <strong>${code}</strong></p>
     <p>This code will expire in 10 minutes.</p>
+    <p style='margin-top: 20px; font-size: 14px; color: #6b7280;'>Ring eSIM</p>
   `;
 
     return this.sendEmail({

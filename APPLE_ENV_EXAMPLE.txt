@@ -1,8 +1,8 @@
 # Apple Sign In Configuration
 APPLE_TEAM_ID=ZX76XAU7L2
-APPLE_CLIENT_ID=com.internetkudo.mobile
+APPLE_CLIENT_ID=com.ringesim.mobile
 APPLE_KEY_ID=GS92JHWYH8
 APPLE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIGTAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBHkwdwIBAQQgs2x7AHh57Gl8ezan\nnxdNVRlVRNtyZcKw1WH8xMeDw3qgCgYIKoZIzj0DAQehRANCAATiy47XM67vvI7T\nDF+BvrPAh2w275ck7P7vhYp68cvaNBUuHSha0AWMRASZbO8MG9sg225p8EAghXNL\nGcLqdF0z\n-----END PRIVATE KEY-----"
-APPLE_CALLBACK_URL=https://api.internetkudo.com/api/auth/apple/callback
-APPLE_MOBILE_REDIRECT_URL=internetkudo://oauth/callback
+APPLE_CALLBACK_URL=https://api.ringesim.com/api/auth/apple/callback
+APPLE_MOBILE_REDIRECT_URL=ringesim://oauth/callback
 

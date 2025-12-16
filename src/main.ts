@@ -32,10 +32,10 @@ async function bootstrap() {
   });
 
   const config = new DocumentBuilder()
-    .setTitle('Internet Kudo API')
-    .setDescription('API documentation for Internet Kudo backend')
+    .setTitle('Ring eSIM API')
+    .setDescription('API documentation for Ring eSIM backend')
     .setVersion('1.0')
-    .addTag('Internet Kudo')
+    .addTag('Ring eSIM')
     .addBearerAuth()
     .addSecurityRequirements('bearer')
     .build();
@@ -43,6 +43,6 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api/swagger', app, document);
 
-  await app.listen(process.env.PORT || 3000, process.env.HOST || '0.0.0.0');
+  await app.listen(process.env.PORT || 3000);
 }
 void bootstrap();
