@@ -19,6 +19,7 @@ import { ProfileModule } from './profile/profile.module';
 import { PromoCodesModule } from './promo-codes/promo-codes.module';
 import { CreditsModule } from './credits/credits.module';
 import { CartModule } from './cart/cart.module';
+import { StatsModule } from './stats/stats.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -59,6 +60,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     PromoCodesModule,
     CreditsModule,
     CartModule,
+    StatsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
