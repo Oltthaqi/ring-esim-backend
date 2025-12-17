@@ -248,7 +248,6 @@ export class UsersService {
       skip: (page - 1) * limit,
       take: limit,
       order: { created_at: 'DESC' },
-      relations: ['userDetails'],
     });
     return { data, total };
   }
