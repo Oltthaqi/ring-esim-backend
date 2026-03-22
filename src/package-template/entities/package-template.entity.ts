@@ -45,4 +45,7 @@ export class PackageTemplate {
 
   @Column({ type: 'varchar', length: 8, nullable: true })
   currency: string | null;
+
+  @Column({ type: 'boolean', default: false })
+  isDeleted: boolean;
 }

@@ -6,7 +6,7 @@ export class DestinationsController {
   constructor(private readonly svc: DestinationsService) {}
 
   // Lokale: list countries from single-country zones
-  // GET /api/esim/destinations/lokale?resellerId=567
+  // GET /api/esim/destinations/lokale?resellerId=590
   @Get()
   lokale() {
     return this.svc.getDestinations();

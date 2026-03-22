@@ -8,7 +8,10 @@ export class OcsController {
 
   @Get('list')
   async list(@Query('accountId') accountId?: string) {
-    const id = Number(accountId ?? process.env.OCS_ACCOUNT_ID);
+    const id =
+      accountId != null && String(accountId).trim() !== ''
+        ? Number(accountId)
+        : this.ocs.getDefaultAccountId();
     // eslint-disable-next-line @typescript-eslint/no-unsafe-return
     return this.ocs.listSubscribers(id);
   }

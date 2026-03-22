@@ -4,11 +4,30 @@ import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class OcsService {
+  private static readonly DEFAULT_RESELLER_ID = 590;
+  private static readonly DEFAULT_ACCOUNT_ID = 2582;
+
   private base = (process.env.OCS_BASE_URL || '').trim();
   private token = (process.env.OCS_TOKEN || '').trim();
   private url = ''; // final URL with token
 
   constructor(private http: HttpService) {}
+
+  /** Default reseller for OCS calls when not passed explicitly (sync, zone lists, package details). */
+  getDefaultResellerId(): number {
+    const n = Number(process.env.OCS_DEFAULT_RESELLER_ID);
+    return Number.isFinite(n) && n > 0
+      ? Math.trunc(n)
+      : OcsService.DEFAULT_RESELLER_ID;
+  }
+
+  /** Default OCS account for subscriber listing when not passed explicitly. */
+  getDefaultAccountId(): number {
+    const n = Number(process.env.OCS_ACCOUNT_ID);
+    return Number.isFinite(n) && n > 0
+      ? Math.trunc(n)
+      : OcsService.DEFAULT_ACCOUNT_ID;
+  }
 
   onModuleInit() {
     // Build URL using URL API to avoid bad concatenation

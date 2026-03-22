@@ -2,7 +2,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm'; // <- add In
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { LocationZone } from './entities/location-zone.entity';
 import { OcsService } from 'src/ocs/ocs.service';
 import {
@@ -39,7 +39,9 @@ export class LocationZoneService {
     });
   }
 
-  async syncFromOcs(resellerId: number): Promise<{ saved: number }> {
+  async syncFromOcs(
+    resellerId: number,
+  ): Promise<{ saved: number; softDeletedZones: number }> {
     if (!resellerId) throw new BadRequestException('resellerId is required');
 
     const payload = { listDetailedLocationZone: resellerId };
@@ -48,17 +50,30 @@ export class LocationZoneService {
     }>(payload);
 
     const zones: OcsLocationZone[] = res.listDetailedLocationZone ?? [];
-    if (!zones.length) return { saved: 0 };
+    if (!zones.length) return { saved: 0, softDeletedZones: 0 };
 
     const rows: Partial<LocationZone>[] = zones.map((z) => ({
       zoneId: String(z.zoneId),
       zoneName: z.zoneName,
       countriesIso2: (z.operators ?? []).map((o) => o.countryIso2),
       countryNames: (z.operators ?? []).map((o) => o.countryName),
+      isDeleted: false,
     }));
 
     await this.zoneRepo.upsert(rows, { conflictPaths: ['zoneId'] });
-    return { saved: rows.length };
+
+    const syncedIds = rows.map((r) => String(r.zoneId));
+    const tombstone = await this.zoneRepo
+      .createQueryBuilder()
+      .update(LocationZone)
+      .set({ isDeleted: true })
+      .where('zoneId NOT IN (:...ids)', { ids: syncedIds })
+      .execute();
+
+    return {
+      saved: rows.length,
+      softDeletedZones: tombstone.affected ?? 0,
+    };
   }
 
   /**
@@ -67,7 +82,13 @@ export class LocationZoneService {
   async listDetailedLocationZone(
     dto: ListDetailedLocationZoneDto,
   ): Promise<ListDetailedLocationZoneResponseDto> {
-    const payload = { listDetailedLocationZone: dto.resellerId };
+    const resellerId = dto.resellerId ?? dto.listDetailedLocationZone;
+    if (resellerId == null || !Number.isFinite(Number(resellerId))) {
+      throw new BadRequestException(
+        'resellerId is required (or listDetailedLocationZone, same as OCS)',
+      );
+    }
+    const payload = { listDetailedLocationZone: Number(resellerId) };
     return this.ocs.post<ListDetailedLocationZoneResponseDto>(payload);
   }
 
@@ -80,7 +101,9 @@ export class LocationZoneService {
     // First get all zones for all resellers, then filter by ISO2
     // Note: This is a simplified approach. In a real scenario, you might want to
     // get resellerId from context or pass it as parameter
-    const payload = { listDetailedLocationZone: 1 }; // Default reseller ID
+    const payload = {
+      listDetailedLocationZone: this.ocs.getDefaultResellerId(),
+    };
     const response =
       await this.ocs.post<ListDetailedLocationZoneResponseDto>(payload);
 
@@ -110,7 +133,9 @@ export class LocationZoneService {
     // 3. Filter by the specific zone ID
 
     // For now, return all zones (you can implement the actual logic based on your package template structure)
-    const payload = { listDetailedLocationZone: 1 }; // Default reseller ID
+    const payload = {
+      listDetailedLocationZone: this.ocs.getDefaultResellerId(),
+    };
     const response =
       await this.ocs.post<ListDetailedLocationZoneResponseDto>(payload);
 
@@ -127,11 +152,10 @@ export class LocationZoneService {
     try {
       // Use a default reseller ID for scheduled sync
       // You might want to make this configurable via environment variables
-      const defaultResellerId = 1;
-      const result = await this.syncFromOcs(defaultResellerId);
+      const result = await this.syncFromOcs(this.ocs.getDefaultResellerId());
 
       this.logger.log(
-        `Completed scheduled zones sync: ${result.saved} zones saved`,
+        `Completed scheduled zones sync: ${result.saved} zones saved, ${result.softDeletedZones} soft-deleted`,
       );
     } catch (error) {
       this.logger.error('Failed to sync zones from OCS:', error);

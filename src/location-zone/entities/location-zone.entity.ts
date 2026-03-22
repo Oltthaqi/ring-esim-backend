@@ -17,4 +17,7 @@ export class LocationZone {
 
   @Column({ type: 'json', nullable: true })
   countryNames!: string[] | null;
+
+  @Column({ type: 'boolean', default: false })
+  isDeleted: boolean;
 }

@@ -42,6 +42,13 @@ export class PackageTemplatesController {
     required: true,
     type: String,
   })
+  @ApiQuery({
+    name: 'resellerId',
+    required: false,
+    type: Number,
+    description:
+      'OCS reseller for detailed zones; defaults to OCS_DEFAULT_RESELLER_ID or 590',
+  })
   @ApiResponse({
     status: 200,
     description: 'Package template details retrieved successfully',

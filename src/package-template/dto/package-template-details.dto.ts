@@ -1,5 +1,6 @@
-import { IsString } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 
 export class PackageTemplateDetailsDto {
   @ApiProperty({
@@ -10,6 +11,17 @@ export class PackageTemplateDetailsDto {
   })
   @IsString()
   packageTemplateId: string;
+
+  @ApiPropertyOptional({
+    description:
+      'OCS reseller ID for listDetailedLocationZone; defaults to OCS_DEFAULT_RESELLER_ID env or 590. Use the same reseller as package/zone sync.',
+    example: 590,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  resellerId?: number;
 }
 
 export class CountryOperatorDto {

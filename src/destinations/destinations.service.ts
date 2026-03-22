@@ -17,64 +17,98 @@ export class DestinationsService {
     private locationZoneRepo: Repository<LocationZone>,
   ) {}
 
-  // LIST all destinations (typed as local/regional/special) using ZoneName + countriesIso2
+  /** Placeholder / test zone names (list2, list6, …) — not shown as sellable destinations. */
+  private isJunkDestinationZoneName(zoneName: string | null | undefined): boolean {
+    const t = String(zoneName ?? '').trim();
+    return /^list\s*\d+\s*$/i.test(t);
+  }
+
+  private isKudoKudaZone(zoneName: string | null | undefined): boolean {
+    const nameLc = String(zoneName ?? '').toLowerCase();
+    return nameLc.includes('kudo') || nameLc.includes('kuda');
+  }
+
+  /**
+   * Worldwide / global product: lowercase name contains substring `global`
+   * (GLOBAL, Globale, GlObal, etc.). Used for type "global" and region packages.
+   */
+  private isWorldwideGlobalZoneName(zoneName: string | null | undefined): boolean {
+    return String(zoneName ?? '').toLowerCase().includes('global');
+  }
+
+  private parsePositivePrice(
+    price: string | number | null | undefined,
+  ): number | null {
+    if (price == null || price === '') return null;
+    const n = Number(price);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }
+
+  // LIST all sellable destinations: local, regional, special, and worldwide (type "global")
   async getDestinations() {
     const zones = await this.locationZoneRepo.find({
       // IMPORTANT: use ZoneId (numeric) — this matches PackageTemplate.zoneId
+      where: { isDeleted: false },
       select: ['zoneId', 'zoneName', 'countriesIso2', 'countryNames'],
     });
 
-    return (
-      zones
-        // Skip zones with empty or null countriesIso2, and exclude global/globale/kudo/kuda zones
-        .filter((zone) => {
-          const hasCountries =
-            Array.isArray(zone.countriesIso2) && zone.countriesIso2.length > 0;
-          const nameLc = (zone.zoneName ?? '').toLowerCase();
-          const isGlobal =
-            nameLc.includes('global') ||
-            nameLc.includes('globale') ||
-            nameLc.includes('kudo') ||
-            nameLc.includes('kuda');
-          return hasCountries && !isGlobal;
-        })
-        .map((zone) => {
-          // De-dupe ISO2 codes; normalize to lowercase
-          const uniqueIso2 = [
-            ...new Set(zone.countriesIso2?.map((c) => String(c).toLowerCase())),
-          ];
-          // De-dupe display names from DB
-          const uniqueNames = Array.isArray(zone.countryNames)
-            ? [...new Set(zone.countryNames)]
-            : [];
+    const rows = zones
+      .filter(
+        (zone) =>
+          !this.isJunkDestinationZoneName(zone.zoneName) &&
+          !this.isKudoKudaZone(zone.zoneName),
+      )
+      .filter((zone) => {
+        const hasCountries =
+          Array.isArray(zone.countriesIso2) && zone.countriesIso2.length > 0;
+        const isGlobal = this.isWorldwideGlobalZoneName(zone.zoneName);
+        return isGlobal || hasCountries;
+      })
+      .map((zone) => {
+        const uniqueIso2 = [
+          ...new Set(
+            (zone.countriesIso2 ?? []).map((c) => String(c).toLowerCase()),
+          ),
+        ];
+        const uniqueNames = Array.isArray(zone.countryNames)
+          ? [...new Set(zone.countryNames)]
+          : [];
 
-          // Determine type - check for special packages FIRST (before local/regional)
-          const nameLc = (zone.zoneName ?? '').toLowerCase().trim();
-          let type: 'local' | 'regional' | 'special';
+        const nameLc = (zone.zoneName ?? '').toLowerCase().trim();
+        let type: 'global' | 'local' | 'regional' | 'special';
 
-          // Check for special packages first (if title contains SPECIALE or SPECIAL anywhere)
-          if (nameLc.includes('speciale') || nameLc.includes('special')) {
-            type = 'special';
-          } else if (uniqueIso2.length === 1) {
-            type = 'local';
-          } else {
-            type = 'regional';
-          }
+        if (this.isWorldwideGlobalZoneName(zone.zoneName)) {
+          type = 'global';
+        } else if (nameLc.includes('speciale') || nameLc.includes('special')) {
+          type = 'special';
+        } else if (uniqueIso2.length === 1) {
+          type = 'local';
+        } else {
+          type = 'regional';
+        }
 
-          return {
-            key: Number(zone.zoneId), // use ZoneId as the key exposed to the client
-            title: zone.zoneName,
-            countries: uniqueNames, // names straight from DB
-            iso2: uniqueIso2,
-            type,
-          };
-        })
-    );
+        return {
+          key: Number(zone.zoneId),
+          title: zone.zoneName ?? '',
+          countries: uniqueNames,
+          iso2: uniqueIso2,
+          type,
+        };
+      });
+
+    rows.sort((a, b) => {
+      if (a.type === 'global' && b.type !== 'global') return -1;
+      if (a.type !== 'global' && b.type === 'global') return 1;
+      return String(a.title).localeCompare(String(b.title));
+    });
+
+    return rows;
   }
 
   // PACKAGES for a clicked country (e.g., /api/esim/destinations/country/us/packages)
   async getPackagesByCountry(iso2: string) {
     const allZones = await this.locationZoneRepo.find({
+      where: { isDeleted: false },
       select: ['zoneId', 'zoneName', 'countriesIso2', 'countryNames'],
     });
 
@@ -96,20 +130,15 @@ export class DestinationsService {
           countryNames: names,
         };
       })
-      // ✅ only single-country zones for the requested ISO, exclude global/globale/kudo/kuda
-      .filter((z) => {
-        const nameLc = z.zoneName.toLowerCase();
-        const isGlobal =
-          nameLc.includes('global') ||
-          nameLc.includes('globale') ||
-          nameLc.includes('kudo') ||
-          nameLc.includes('kuda');
-        return (
+      // ✅ single-country zones only; exclude worldwide global & junk (use /region/{zoneId}/packages for global)
+      .filter(
+        (z) =>
           z.countriesIso2.includes(iso2) &&
           z.countriesIso2.length === 1 &&
-          !isGlobal
-        );
-      });
+          !this.isWorldwideGlobalZoneName(z.zoneName) &&
+          !this.isJunkDestinationZoneName(z.zoneName) &&
+          !this.isKudoKudaZone(z.zoneName),
+      );
 
     if (zones.length === 0) {
       return {
@@ -134,6 +163,7 @@ export class DestinationsService {
         'p.zoneId AS zoneId',
       ])
       .where('p.zoneId IN (:...ids)', { ids: zoneIds })
+      .andWhere('p.isDeleted = :active', { active: false })
       .getRawMany();
 
     const zoneById = new Map(zones.map((z) => [z.ZoneId, z]));
@@ -141,11 +171,13 @@ export class DestinationsService {
       .map((r) => {
         const z = zoneById.get(Number(r.zoneId));
         if (!z) return null;
+        const price = this.parsePositivePrice(r.price);
+        if (price == null) return null;
         return {
           id: String(r.id),
           packageTemplateId: String(r.packageTemplateId),
           title: r.name,
-          price: r.price != null ? Number(r.price) : null,
+          price,
           currency: r.currency ?? 'EUR',
           periodDays: r.periodDays ?? null,
           data: r.volume ?? null,
@@ -185,42 +217,45 @@ export class DestinationsService {
       return { region: null, items: [], total: 0 };
     }
 
-    // Load the zone
     const z = await this.locationZoneRepo.findOne({
-      where: { zoneId: zoneId as any }, // cast if your entity typing is strict
+      where: { zoneId: zoneId as any, isDeleted: false },
       select: ['zoneId', 'zoneName', 'countriesIso2', 'countryNames'],
     });
 
-    // Validate + normalize
-    if (!z || !Array.isArray(z.countriesIso2) || z.countriesIso2.length === 0) {
+    if (!z) {
       return { region: null, items: [], total: 0 };
     }
+
+    if (
+      this.isJunkDestinationZoneName(z.zoneName) ||
+      this.isKudoKudaZone(z.zoneName)
+    ) {
+      return { region: null, items: [], total: 0 };
+    }
+
+    const isGlobal = this.isWorldwideGlobalZoneName(z.zoneName);
+    const rawIso = Array.isArray(z.countriesIso2) ? z.countriesIso2 : [];
     const iso2List = [
-      ...new Set(z.countriesIso2.map((c) => String(c).toLowerCase())),
+      ...new Set(rawIso.map((c) => String(c).toLowerCase())),
     ];
-    const nameLc = (z.zoneName ?? '').toLowerCase();
 
-    // Exclude global/globale/kudo/kuda zones
-    const isGlobal =
-      nameLc.includes('global') ||
-      nameLc.includes('globale') ||
-      nameLc.includes('kudo') ||
-      nameLc.includes('kuda');
-
-    // Must be regional: more than one unique country, and NOT global
-    if (iso2List.length <= 1 || isGlobal) {
-      return {
-        region: { zoneId: Number(z.zoneId), title: z.zoneName ?? '' },
-        items: [],
-        total: 0,
-      };
+    if (!isGlobal) {
+      if (rawIso.length === 0) {
+        return { region: null, items: [], total: 0 };
+      }
+      if (iso2List.length <= 1) {
+        return {
+          region: { zoneId: Number(z.zoneId), title: z.zoneName ?? '' },
+          items: [],
+          total: 0,
+        };
+      }
     }
 
     const countryNames = Array.isArray(z.countryNames)
       ? [...new Set(z.countryNames)]
       : [];
 
-    // Fetch packages for this zone only
     const rawPkgs = await this.packageTemplateRepo
       .createQueryBuilder('p')
       .select([
@@ -234,26 +269,41 @@ export class DestinationsService {
         'p.zoneId AS zoneId',
       ])
       .where('p.zoneId = :id', { id: Number(z.zoneId) })
+      .andWhere('p.isDeleted = :active', { active: false })
       .getRawMany();
 
-    const items = rawPkgs.map((r) => ({
-      id: String(r.id),
-      packageTemplateId: String(r.packageTemplateId),
-      title: r.name,
-      price: r.price != null ? Number(r.price) : null,
-      currency: r.currency ?? 'EUR',
-      periodDays: r.periodDays ?? null,
-      data: r.volume ?? null,
-      countriesCount: iso2List.length, // multi-country badge
-      zoneId: Number(r.zoneId),
-      zoneName: z.zoneName ?? '',
-    }));
+    const items = rawPkgs
+      .map((r) => {
+        const price = this.parsePositivePrice(r.price);
+        if (price == null) return null;
+        return {
+          id: String(r.id),
+          packageTemplateId: String(r.packageTemplateId),
+          title: r.name,
+          price,
+          currency: r.currency ?? 'EUR',
+          periodDays: r.periodDays ?? null,
+          data: r.volume ?? null,
+          countriesCount: iso2List.length,
+          zoneId: Number(r.zoneId),
+          zoneName: z.zoneName ?? '',
+        };
+      })
+      .filter(Boolean) as Array<{
+      id: string;
+      packageTemplateId: string;
+      title: string;
+      price: number;
+      currency: string;
+      periodDays: number | null;
+      data: string | null;
+      countriesCount: number;
+      zoneId: number;
+      zoneName: string;
+    }>;
 
-    // Sort like the other list: cheapest first, nulls last
     items.sort((a, b) => {
-      const pa = a.price ?? Number.POSITIVE_INFINITY;
-      const pb = b.price ?? Number.POSITIVE_INFINITY;
-      if (pa !== pb) return pa - pb;
+      if (a.price !== b.price) return a.price - b.price;
       return a.title.localeCompare(b.title);
     });
 

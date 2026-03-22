@@ -383,10 +383,14 @@ export class StatsService {
     const now = new Date();
 
     // Total locations (count distinct location zones)
-    const totalLocations = await this.locationZoneRepository.count();
+    const totalLocations = await this.locationZoneRepository.count({
+      where: { isDeleted: false },
+    });
 
     // Total packages (count package templates)
-    const totalPackages = await this.packageTemplateRepository.count();
+    const totalPackages = await this.packageTemplateRepository.count({
+      where: { isDeleted: false },
+    });
 
     // Active eSIMs (from usage where status is active or isActive is true)
     const activeEsims = await this.usageRepository.count({

@@ -1,8 +1,27 @@
 import { IsNumber, IsOptional, IsString } from 'class-validator';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 
 export class ListDetailedLocationZoneDto {
+  @ApiPropertyOptional({
+    description: 'Reseller ID (preferred).',
+    example: 590,
+  })
+  @IsOptional()
+  @Type(() => Number)
   @IsNumber()
-  resellerId: number;
+  resellerId?: number;
+
+  /** Same value as OCS request field `listDetailedLocationZone` (vendor API shape). */
+  @ApiPropertyOptional({
+    description:
+      'Alternative to resellerId — same as OCS JSON field listDetailedLocationZone.',
+    example: 590,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  listDetailedLocationZone?: number;
 }
 
 export class ListDetailedLocationZoneByIso2Dto {

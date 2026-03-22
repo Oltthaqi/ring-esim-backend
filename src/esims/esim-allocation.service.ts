@@ -24,7 +24,7 @@ export class EsimAllocationService {
   async allocateEsimForPackage(packageTemplateId: string): Promise<Esim> {
     // First, get the package template to understand what zones/countries it covers
     const packageTemplate = await this.packageTemplateRepository.findOne({
-      where: { packageTemplateId },
+      where: { packageTemplateId, isDeleted: false },
       relations: ['zone'],
     });
 
@@ -122,7 +122,7 @@ export class EsimAllocationService {
     packageTemplate: PackageTemplate;
   }> {
     const packageTemplate = await this.packageTemplateRepository.findOne({
-      where: { packageTemplateId },
+      where: { packageTemplateId, isDeleted: false },
     });
 
     if (!packageTemplate) {

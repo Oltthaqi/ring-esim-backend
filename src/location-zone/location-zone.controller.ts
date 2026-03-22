@@ -6,6 +6,7 @@ import {
   Query,
   Body,
 } from '@nestjs/common';
+import { ApiBody, ApiOperation } from '@nestjs/swagger';
 import { LocationZoneService } from './location-zone.service';
 import {
   ListDetailedLocationZoneDto,
@@ -29,6 +30,18 @@ export class LocationZoneController {
    * POST /zones/detailed
    */
   @Post('detailed')
+  @ApiOperation({
+    summary: 'List detailed location zones (OCS)',
+    description:
+      'Body must be valid JSON with Content-Type application/json. Send resellerId, or listDetailedLocationZone (vendor/OCS field name).',
+  })
+  @ApiBody({
+    type: ListDetailedLocationZoneDto,
+    examples: {
+      nest: { value: { resellerId: 590 } },
+      ocs: { value: { listDetailedLocationZone: 590 } },
+    },
+  })
   async listDetailedLocationZone(@Body() dto: ListDetailedLocationZoneDto) {
     return this.zones.listDetailedLocationZone(dto);
   }

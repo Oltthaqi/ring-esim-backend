@@ -3,7 +3,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
 import { PackageTemplate } from './entities/package-template.entity';
 import { LocationZoneService } from '../location-zone/location-zone.service';
@@ -40,6 +40,15 @@ export class PackageTemplatesService {
     private readonly ocs: OcsService,
     private readonly zones: LocationZoneService,
   ) {}
+
+  private countriesFromStoredIso2(iso2s: string[] | null): CountryOperatorDto[] {
+    if (!iso2s?.length) return [];
+    return iso2s.map((countryIso2) => ({
+      countryIso2,
+      countryName: countryIso2,
+      operatorNames: [] as string[],
+    }));
+  }
 
   private bytesToHuman(b?: number | null): string | null {
     if (b == null) return null;
@@ -80,22 +89,33 @@ export class PackageTemplatesService {
     };
   }
 
-  async findOne(id: string): Promise<PackageTemplate | null> {
+  async findOne(
+    id: string,
+    opts?: { includeDeleted?: boolean },
+  ): Promise<PackageTemplate | null> {
     return await this.pkgRepo.findOne({
-      where: { id },
+      where: {
+        id,
+        ...(opts?.includeDeleted ? {} : { isDeleted: false }),
+      },
     });
   }
 
   async findByTemplateId(
     packageTemplateId: string,
+    opts?: { includeDeleted?: boolean },
   ): Promise<PackageTemplate | null> {
     return await this.pkgRepo.findOne({
-      where: { packageTemplateId },
+      where: {
+        packageTemplateId,
+        ...(opts?.includeDeleted ? {} : { isDeleted: false }),
+      },
     });
   }
 
   async findAll(): Promise<PackageTemplate[]> {
     return await this.pkgRepo.find({
+      where: { isDeleted: false },
       relations: ['zone'],
       order: { packageTemplateName: 'ASC' },
     });
@@ -128,6 +148,7 @@ export class PackageTemplatesService {
         zoneName: v.zoneName ?? '',
         countriesIso2: null,
         countryNames: null,
+        isDeleted: false,
       }));
 
     if (missingZones.length) {
@@ -154,6 +175,7 @@ export class PackageTemplatesService {
         volume: v.volume ?? null,
         price: v.price ?? null,
         currency: v.currency ?? null,
+        isDeleted: false,
       };
     });
 
@@ -161,7 +183,27 @@ export class PackageTemplatesService {
       await this.pkgRepo.upsert(rows, { conflictPaths: ['packageTemplateId'] });
     }
 
-    return { saved: rows.length, skipped };
+    // Do not tombstone the whole catalog when OCS returns an empty normalized list.
+    let softDeletedTemplates = 0;
+    if (normalized.length > 0) {
+      const syncedTemplateIds = normalized.map((n) => n.packageTemplateId);
+      const tombstone = await this.pkgRepo
+        .createQueryBuilder()
+        .update(PackageTemplate)
+        .set({ isDeleted: true })
+        .where('packageTemplateId NOT IN (:...ids)', { ids: syncedTemplateIds })
+        .execute();
+      softDeletedTemplates = tombstone.affected ?? 0;
+
+      if (zoneIds.length) {
+        await this.zoneRepo.update(
+          { zoneId: In(zoneIds) },
+          { isDeleted: false },
+        );
+      }
+    }
+
+    return { saved: rows.length, skipped, softDeletedTemplates };
   }
 
   /**
@@ -184,25 +226,41 @@ export class PackageTemplatesService {
       );
     }
 
-    // Get detailed location zone information from OCS
+    const resellerId =
+      dto.resellerId != null && Number.isFinite(Number(dto.resellerId))
+        ? Number(dto.resellerId)
+        : this.ocs.getDefaultResellerId();
+
     const detailedZonesResponse =
       await this.ocs.post<ListDetailedLocationZoneResponseDto>({
-        listDetailedLocationZone: 567, // Default reseller ID
+        listDetailedLocationZone: resellerId,
       });
 
-    if (!detailedZonesResponse.listDetailedLocationZone) {
-      throw new NotFoundException('No detailed location zones found');
-    }
+    const zones = detailedZonesResponse.listDetailedLocationZone ?? null;
+    const zoneList = Array.isArray(zones) ? zones : [];
 
-    // Find the specific zone for this package template
-    const packageZone = detailedZonesResponse.listDetailedLocationZone.find(
+    const baseFields = {
+      packageTemplateId: packageTemplate.packageTemplateId,
+      packageName: packageTemplate.packageTemplateName,
+      price: packageTemplate.price,
+      currency: packageTemplate.currency,
+      usageAllowed: packageTemplate.volume,
+      validityDays: packageTemplate.periodDays,
+    };
+
+    const packageZone = zoneList.find(
       (zone) => zone.zoneId === Number(packageTemplate.zoneId),
     );
 
-    if (!packageZone) {
-      throw new NotFoundException(
-        `Location zone ${packageTemplate.zoneId} not found in detailed zones`,
+    if (!packageZone?.operators?.length) {
+      const countries = this.countriesFromStoredIso2(
+        packageTemplate.countriesIso2,
       );
+      return {
+        ...baseFields,
+        numberOfCountries: countries.length,
+        countries,
+      };
     }
 
     // Group operators by country
@@ -233,14 +291,9 @@ export class PackageTemplatesService {
     );
 
     return {
-      packageTemplateId: packageTemplate.packageTemplateId,
-      packageName: packageTemplate.packageTemplateName,
-      price: packageTemplate.price,
-      currency: packageTemplate.currency,
-      usageAllowed: packageTemplate.volume,
-      validityDays: packageTemplate.periodDays,
+      ...baseFields,
       numberOfCountries: countries.length,
-      countries: countries,
+      countries,
     };
   }
 
@@ -254,10 +307,11 @@ export class PackageTemplatesService {
     try {
       // Use a default reseller ID for scheduled sync
       // You might want to make this configurable via environment variables
-      const defaultResellerId = 1;
-      await this.syncFromOcs(defaultResellerId);
+      const result = await this.syncFromOcs(this.ocs.getDefaultResellerId());
 
-      this.logger.log('Completed scheduled packages sync from OCS');
+      this.logger.log(
+        `Completed scheduled packages sync from OCS: saved=${result.saved}, softDeletedTemplates=${result.softDeletedTemplates}`,
+      );
     } catch (error) {
       this.logger.error('Failed to sync packages from OCS:', error);
     }
