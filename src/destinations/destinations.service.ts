@@ -23,7 +23,8 @@ export class DestinationsService {
     return /^list\s*\d+\s*$/i.test(t);
   }
 
-  private isKudoKudaZone(zoneName: string | null | undefined): boolean {
+  /** OCS may still emit legacy/internal zone names we never surface in the catalog. */
+  private shouldHideZoneFromCatalog(zoneName: string | null | undefined): boolean {
     const nameLc = String(zoneName ?? '').toLowerCase();
     return nameLc.includes('kudo') || nameLc.includes('kuda');
   }
@@ -56,7 +57,7 @@ export class DestinationsService {
       .filter(
         (zone) =>
           !this.isJunkDestinationZoneName(zone.zoneName) &&
-          !this.isKudoKudaZone(zone.zoneName),
+          !this.shouldHideZoneFromCatalog(zone.zoneName),
       )
       .filter((zone) => {
         const hasCountries =
@@ -137,7 +138,7 @@ export class DestinationsService {
           z.countriesIso2.length === 1 &&
           !this.isWorldwideGlobalZoneName(z.zoneName) &&
           !this.isJunkDestinationZoneName(z.zoneName) &&
-          !this.isKudoKudaZone(z.zoneName),
+          !this.shouldHideZoneFromCatalog(z.zoneName),
       );
 
     if (zones.length === 0) {
@@ -228,7 +229,7 @@ export class DestinationsService {
 
     if (
       this.isJunkDestinationZoneName(z.zoneName) ||
-      this.isKudoKudaZone(z.zoneName)
+      this.shouldHideZoneFromCatalog(z.zoneName)
     ) {
       return { region: null, items: [], total: 0 };
     }
