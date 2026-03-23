@@ -24,7 +24,7 @@ export class ProfileService {
 
   async getProfile(userId: string): Promise<ProfileResponseDto> {
     const user = await this.userRepository.findOne({
-      where: { id: userId },
+      where: { id: userId, is_deleted: false },
     });
 
     if (!user) {
@@ -43,7 +43,7 @@ export class ProfileService {
   async getEsimStats(userId: string): Promise<EsimStatsResponseDto> {
     // Verify user exists
     const user = await this.userRepository.findOne({
-      where: { id: userId },
+      where: { id: userId, is_deleted: false },
     });
 
     if (!user) {
@@ -90,7 +90,7 @@ export class ProfileService {
   async getBillingDetails(userId: string): Promise<BillingDetailsDto> {
     // Verify user exists
     const user = await this.userRepository.findOne({
-      where: { id: userId },
+      where: { id: userId, is_deleted: false },
     });
 
     if (!user) {
@@ -111,7 +111,7 @@ export class ProfileService {
   async getPurchases(userId: string): Promise<PurchasesResponseDto> {
     // Verify user exists
     const user = await this.userRepository.findOne({
-      where: { id: userId },
+      where: { id: userId, is_deleted: false },
     });
 
     if (!user) {
@@ -149,7 +149,7 @@ export class ProfileService {
   async getPayments(userId: string): Promise<PaymentsResponseDto> {
     // Verify user exists
     const user = await this.userRepository.findOne({
-      where: { id: userId },
+      where: { id: userId, is_deleted: false },
     });
 
     if (!user) {

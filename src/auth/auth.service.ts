@@ -11,7 +11,7 @@ import { ConfigService } from '@nestjs/config';
 import randomInteger from 'random-int';
 import { InjectRepository } from '@nestjs/typeorm';
 import { VerificationEntity } from 'src/users/entitites/verification.entity';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { CreateVerificationDto } from 'src/users/dto/create-verification.dto';
 import { VerifyUserDto } from './dto/verify-user.dto';
 import LoginUserDto from './dto/login-user.dto';
@@ -34,6 +34,9 @@ import { CreateUserAppleDto } from 'src/users/dto/create-user-apple-oauth.dto';
 import { Role } from 'src/users/enums/role.enum';
 import { randomBytes } from 'crypto';
 import appleSignin from 'apple-signin-auth';
+import { Order } from 'src/orders/entities/order.entity';
+import { NotificationsEntity } from 'src/notifications/entities/notification.entity';
+import { Status } from 'src/common/enums/status.enum';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
@@ -47,6 +50,7 @@ export class AuthService {
     private readonly verificationRepository: Repository<VerificationEntity>,
     private readonly jwtService: JwtService,
     private readonly emailService: EmailService,
+    private readonly dataSource: DataSource,
   ) {
     AWS.config.update({
       accessKeyId: this.configService.get('KMS_AWS_ACCESS_KEY_ID'),
@@ -380,6 +384,53 @@ export class AuthService {
   private static getExpirationDate(seconds: number) {
     const expirationDate = moment().add(seconds, 'seconds');
     return Math.floor(new Date(expirationDate.toISOString()).getTime() / 1000);
+  }
+
+  /**
+   * Mobile account deletion: anonymize PII, disable login, remove verification codes,
+   * push/device tokens (notifications), and optional user labels on orders.
+   * Orders and payment references are retained for accounting (userId unchanged).
+   */
+  async deleteAccount(userId: string): Promise<{ message: string }> {
+    await this.dataSource.transaction(async (manager) => {
+      const user = await manager.findOne(UsersEntity, {
+        where: { id: userId },
+      });
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+      if (user.is_deleted) {
+        return;
+      }
+
+      await manager.delete(VerificationEntity, { user_id: userId });
+      await manager.delete(NotificationsEntity, { user_id: userId });
+      await manager.update(Order, { userId }, {
+        userSimName: null,
+      } as Record<string, unknown>);
+
+      const anonymousEmail = `deleted.${user.id.replace(/-/g, '')}@account-deleted.invalid`;
+      const unusablePassword = await this.getSaltedHashValue(
+        randomBytes(48).toString('hex'),
+      );
+
+      await manager.update(UsersEntity, { id: userId }, {
+        first_name: null,
+        last_name: null,
+        email: anonymousEmail,
+        phone_number: null,
+        gender: null,
+        password: unusablePassword,
+        is_verified: false,
+        status: Status.INACTIVE,
+        is_deleted: true,
+        referral_code: null,
+        referred_by_user_id: null,
+      } as Record<string, unknown>);
+    });
+
+    this.logger.log(`Account anonymized for user id=${userId}`);
+    return { message: 'Account deleted' };
   }
 
   async changePassword(

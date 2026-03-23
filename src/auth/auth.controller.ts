@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Post,
+  Delete,
   UnauthorizedException,
   BadRequestException,
   UseGuards,
@@ -13,7 +14,12 @@ import {
   Query,
   Logger,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { Response } from 'express';
 import { AuthService } from './auth.service';
 import { ConfigService } from '@nestjs/config';
@@ -348,6 +354,23 @@ export class AuthController {
       this.logger.error(`[APPLE LOGIN] Error: ${error.message}`);
       throw error;
     }
+  }
+
+  @Delete('account')
+  @UseGuards(JwtRolesGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.USER)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Delete the authenticated account (anonymize PII, disable login)',
+    description:
+      'Retains orders and payment references for legal/accounting. Invalidates login by scrambling credentials and email.',
+  })
+  @ApiResponse({ status: 200, description: 'Account deleted' })
+  @ApiResponse({ status: 401, description: 'Invalid or expired token' })
+  async deleteAccount(
+    @Request() req: { user: { uuid: string } },
+  ): Promise<{ message: string }> {
+    return this.authService.deleteAccount(req.user.uuid);
   }
 
   @UseGuards(JwtRolesGuard)
