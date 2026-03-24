@@ -65,7 +65,7 @@ export class AuthService {
     const existingUser = await this.userService.getUserByEmail(userDto.email);
 
     if (existingUser) {
-      throw new BadRequestException('User alredy exists');
+      throw new BadRequestException('User already exists');
     }
 
     if (userDto.password !== userDto.confirm_password) {
@@ -81,21 +81,27 @@ export class AuthService {
 
     const user = await this.userService.register(userDto, cryptedPassword);
     const verifyCode = randomInteger(100000, 999999).toString();
-    // Send SMS
-    // await this.snsService.sendSms(userDto.phone_number, verifyCode);
-    // Save Twilio code
-    await this.emailService.sendVerificationCodeEmail(
-      userDto.email,
-      verifyCode,
-    );
+
     await this.addEmailCodeVerification(
       {
-        email: userDto.phone_number,
+        email: userDto.email,
         code: verifyCode,
         expires_at: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
       },
       user.id,
     );
+
+    // Do not await: SMTP can exceed reverse-proxy timeouts (504) while the user
+    // row already exists, causing "try again" then "already exists". Resend-code
+    // works if delivery fails.
+    void this.emailService
+      .sendVerificationCodeEmail(userDto.email, verifyCode)
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error(
+          `Verification email failed for ${userDto.email}: ${msg}`,
+        );
+      });
 
     return user;
   }
@@ -141,13 +147,6 @@ export class AuthService {
     }
 
     const verifyCode = randomInteger(100000, 999999).toString();
-    // Send SMS
-    // await this.snsService.sendSms(user.phone_number, verifyCode);
-    // Save Twilio code
-    await this.emailService.sendVerificationCodeEmail(
-      resendCodeDto.email,
-      verifyCode,
-    );
 
     await this.addEmailCodeVerification(
       {
@@ -157,6 +156,15 @@ export class AuthService {
       },
       user.id,
     );
+
+    void this.emailService
+      .sendVerificationCodeEmail(resendCodeDto.email, verifyCode)
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error(
+          `Resend verification email failed for ${resendCodeDto.email}: ${msg}`,
+        );
+      });
 
     return verifyCode;
   }
@@ -197,10 +205,6 @@ export class AuthService {
       throw new BadRequestException('Email does not match');
     }
 
-    // await this.snsService.sendSms(user.phone_number, verifyCode);
-
-    await this.emailService.sendVerificationCodeEmail(data.email, verifyCode);
-
     await this.addEmailCodeVerification(
       {
         email: user.email,
@@ -209,6 +213,15 @@ export class AuthService {
       },
       user.id,
     );
+
+    void this.emailService
+      .sendVerificationCodeEmail(data.email, verifyCode)
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.error(
+          `Forgot-password verification email failed for ${data.email}: ${msg}`,
+        );
+      });
 
     return { id: user.id, email: user.email, verifyCode };
   }

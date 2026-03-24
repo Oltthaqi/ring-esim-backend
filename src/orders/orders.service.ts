@@ -220,36 +220,9 @@ export class OrdersService {
         status: OrderStatus.COMPLETED,
       });
 
-      // Handle referral rewards for first order
-      try {
-        await this.handleReferralRewards(orderId);
-      } catch (error) {
-        this.logger.warn(
-          `Failed to process referral rewards for order ${orderId}: ${error.message}`,
-        );
-        // Don't throw error here as order is already completed successfully
-      }
-
-      // Create usage tracking record for the completed order
-      try {
-        await this.usageService.createUsageRecord(orderId);
-        this.logger.log(`Usage record created for order ${orderId}`);
-      } catch (error) {
-        this.logger.warn(
-          `Failed to create usage record for order ${orderId}: ${error.message}`,
-        );
-        // Don't throw error here as order is already completed successfully
-      }
-
-      // Send order completion email
-      try {
-        await this.sendOrderCompletionEmail(orderId);
-      } catch (error) {
-        this.logger.error(
-          `Failed to send order completion email for order ${orderId}: ${error.message}`,
-        );
-        // Don't throw error here as order is already completed successfully
-      }
+      // Referral, usage sync, and SMTP (QR + template) often exceed reverse-proxy
+      // timeouts; fulfillment is already persisted above.
+      this.schedulePostOrderCompletionSideEffects(orderId, { referral: true });
     } catch (error) {
       // Update status to failed with error details
       await this.orderRepository.update(orderId, {
@@ -259,6 +232,37 @@ export class OrdersService {
       });
       throw error;
     }
+  }
+
+  /**
+   * Runs after order is COMPLETED. Do not await from payment/confirm — avoids 504s when
+   * SMTP or usage sync is slow; eSIM data is already on the order row.
+   */
+  private schedulePostOrderCompletionSideEffects(
+    orderId: string,
+    options?: { referral?: boolean },
+  ): void {
+    const runReferral = options?.referral !== false;
+    if (runReferral) {
+      void this.handleReferralRewards(orderId).catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `Failed to process referral rewards for order ${orderId}: ${msg}`,
+        );
+      });
+    }
+    void this.usageService.createUsageRecord(orderId).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn(
+        `Failed to create usage record for order ${orderId}: ${msg}`,
+      );
+    });
+    void this.sendOrderCompletionEmail(orderId).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(
+        `Failed to send order completion email for order ${orderId}: ${msg}`,
+      );
+    });
   }
 
   private async processOneTimeOrder(order: Order): Promise<void> {
@@ -898,26 +902,7 @@ export class OrdersService {
         ocsResponse: response as any,
       });
 
-      // Create usage tracking record for the completed top-up order
-      try {
-        await this.usageService.createUsageRecord(orderId);
-        this.logger.log(`Usage record created for top-up order ${orderId}`);
-      } catch (error) {
-        this.logger.warn(
-          `Failed to create usage record for top-up order ${orderId}: ${error.message}`,
-        );
-        // Don't throw error here as top-up is already completed successfully
-      }
-
-      // Send order completion email for top-up
-      try {
-        await this.sendOrderCompletionEmail(orderId);
-      } catch (error) {
-        this.logger.error(
-          `Failed to send order completion email for top-up order ${orderId}: ${error.message}`,
-        );
-        // Don't throw error here as top-up is already completed successfully
-      }
+      this.schedulePostOrderCompletionSideEffects(orderId, { referral: false });
     } catch (error: any) {
       this.logger.error('Top-up failed', error.stack);
 
