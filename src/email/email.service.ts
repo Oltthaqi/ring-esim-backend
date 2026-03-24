@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import SMTPTransport from 'nodemailer/lib/smtp-transport';
@@ -10,6 +10,7 @@ import { SendEmailDTO } from './dto/send-email.dto';
 
 @Injectable()
 export class EmailService {
+  private readonly logger = new Logger(EmailService.name);
   private transporter: nodemailer.Transporter;
   private logoUrl: string | undefined;
 
@@ -70,6 +71,10 @@ export class EmailService {
     code: string,
   ): Promise<SMTPTransport.SentMessageInfo> {
     const subject = 'Email Verification Code';
+    this.logger.log(
+      `[VERIFICATION EMAIL] Sending verification code to=${email} (code length=${code.length}, not logged for security)`,
+    );
+
     const html = `
     <p>Hi ${email},</p>
     <p>Your verification code is: <strong>${code}</strong></p>
@@ -77,11 +82,18 @@ export class EmailService {
     <p style='margin-top: 20px; font-size: 14px; color: #6b7280;'>Ring eSIM</p>
   `;
 
-    return this.sendEmail({
+    const info = await this.sendEmail({
       to: email,
       subject,
       body: html,
     });
+
+    // SMTP accepted the message; inbox delivery depends on recipient provider/spam filters.
+    this.logger.log(
+      `[VERIFICATION EMAIL] SMTP send succeeded to=${email} messageId=${info.messageId ?? 'n/a'} response=${info.response ?? 'n/a'}`,
+    );
+
+    return info;
   }
 
   async sendOrderCompletionEmail(
