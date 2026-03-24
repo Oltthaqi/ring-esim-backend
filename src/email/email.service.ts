@@ -8,6 +8,28 @@ import * as handlebars from 'handlebars';
 import * as QRCode from 'qrcode';
 import { SendEmailDTO } from './dto/send-email.dto';
 
+/** .env values are strings; `secure: "false"` must not be treated as true. */
+function parseEnvBool(
+  raw: string | boolean | undefined,
+  defaultValue: boolean,
+): boolean {
+  if (raw === undefined || raw === '') return defaultValue;
+  if (typeof raw === 'boolean') return raw;
+  const s = String(raw).trim().toLowerCase();
+  if (['true', '1', 'yes', 'on'].includes(s)) return true;
+  if (['false', '0', 'no', 'off'].includes(s)) return false;
+  return defaultValue;
+}
+
+function parseEnvInt(
+  raw: string | number | undefined,
+  defaultValue: number,
+): number {
+  if (raw === undefined || raw === '') return defaultValue;
+  const n = typeof raw === 'number' ? raw : parseInt(String(raw), 10);
+  return Number.isFinite(n) ? n : defaultValue;
+}
+
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
@@ -15,15 +37,51 @@ export class EmailService {
   private logoUrl: string | undefined;
 
   constructor(private readonly configService: ConfigService) {
+    const host = this.configService.get<string>('SMTP_HOST', '') || '';
+    const port = parseEnvInt(this.configService.get('SMTP_PORT'), 587);
+    const secureExplicit = this.configService.get<string | boolean | undefined>(
+      'SMTP_SECURE',
+    );
+    const secure =
+      secureExplicit === undefined || secureExplicit === ''
+        ? port === 465
+        : parseEnvBool(secureExplicit, port === 465);
+
+    const connectionTimeout = parseEnvInt(
+      this.configService.get('SMTP_CONNECTION_TIMEOUT_MS'),
+      60_000,
+    );
+    const greetingTimeout = parseEnvInt(
+      this.configService.get('SMTP_GREETING_TIMEOUT_MS'),
+      30_000,
+    );
+    const socketTimeout = parseEnvInt(
+      this.configService.get('SMTP_SOCKET_TIMEOUT_MS'),
+      60_000,
+    );
+    const forceIpv4 = parseEnvBool(
+      this.configService.get('SMTP_FORCE_IPV4'),
+      false,
+    );
+
+    this.logger.log(
+      `SMTP config: host=${host || '(empty)'} port=${port} secure=${secure} ` +
+        `timeouts(ms)=${connectionTimeout}/${greetingTimeout}/${socketTimeout} forceIpv4=${forceIpv4}`,
+    );
+
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access
     this.transporter = nodemailer.createTransport({
-      host: this.configService.get<string>('SMTP_HOST', ''),
-      port: this.configService.get<number>('SMTP_PORT', 587),
-      secure: this.configService.get<boolean>('SMTP_SECURE', false),
+      host,
+      port,
+      secure,
       auth: {
         user: this.configService.get<string>('SMTP_USERNAME', ''),
         pass: this.configService.get<string>('SMTP_PASSWORD', ''),
       },
+      connectionTimeout,
+      greetingTimeout,
+      socketTimeout,
+      ...(forceIpv4 ? { family: 4 as const } : {}),
     });
   }
 
