@@ -1,17 +1,30 @@
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
+  Param,
+  Patch,
   Post,
   Query,
-  Body,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiQuery, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+} from '@nestjs/swagger';
+import { AuthGuard } from '@nestjs/passport';
 import { PackageTemplatesService } from './package-template.service';
 import {
   PackageTemplateDetailsDto,
   PackageTemplateDetailsResponseDto,
 } from './dto/package-template-details.dto';
+import { UpdatePackageTemplateDto } from './dto/update-package-template.dto';
+import { JwtRolesGuard } from 'src/auth/utils/jwt‑roles.guard';
+import { Roles } from 'src/common/decorators/roles.decorator';
+import { Role } from 'src/users/enums/role.enum';
 
 @Controller('packages')
 export class PackageTemplatesController {
@@ -62,5 +75,22 @@ export class PackageTemplatesController {
     @Query() dto: PackageTemplateDetailsDto,
   ): Promise<PackageTemplateDetailsResponseDto> {
     return await this.svc.getPackageTemplateDetails(dto);
+  }
+
+  @Patch(':id')
+  @UseGuards(AuthGuard('jwt'), JwtRolesGuard)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Update package template price (OCS cost via modifyPPTCore)',
+  })
+  @ApiResponse({ status: 200, description: 'Package updated' })
+  @ApiResponse({ status: 400, description: 'Validation or OCS error' })
+  @ApiResponse({ status: 404, description: 'Package not found' })
+  async updatePackage(
+    @Param('id') id: string,
+    @Body() dto: UpdatePackageTemplateDto,
+  ) {
+    return this.svc.updatePackage(id, dto);
   }
 }

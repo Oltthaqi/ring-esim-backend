@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { UsersEntity } from './entitites/users.entity';
+import { AdminListedUser } from './types/admin-listed-user.type';
 import { CreateUserDto } from './dto/create-user.dto';
 import { Request } from 'express';
 import { UsersService } from './users.service';
@@ -50,7 +51,7 @@ export class UsersController {
   @Get('/all')
   async getAllUsers(
     @Query() pagableParams: PagableParamsDto,
-  ): Promise<{ data: UsersEntity[]; total: number }> {
+  ): Promise<{ data: AdminListedUser[]; total: number }> {
     return await this.usersService.getAllUsers(pagableParams);
   }
 

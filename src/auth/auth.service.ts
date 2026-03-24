@@ -61,6 +61,17 @@ export class AuthService {
     this.kms = new AWS.KMS();
   }
 
+  /** Same JSON shape as POST /auth/login (camelCase + snake_case for clients). */
+  toLoginResponse(tokens: TokenDto): {
+    accessToken: string;
+    access_token: string;
+  } {
+    return {
+      accessToken: tokens.accessToken,
+      access_token: tokens.accessToken,
+    };
+  }
+
   async signUp(userDto: CreateUserDto): Promise<UsersEntity> {
     const existingUser = await this.userService.getUserByEmail(userDto.email);
 
@@ -109,7 +120,7 @@ export class AuthService {
   async verifyUser(
     user_id: string,
     verifyUserDto: VerifyUserDto,
-  ): Promise<boolean> {
+  ): Promise<{ accessToken: string; access_token: string }> {
     const user = await this.userService.getUserById(user_id);
 
     if (!user) {
@@ -134,9 +145,13 @@ export class AuthService {
       throw new BadRequestException('Code expired');
     }
 
-    await this.userService.updateUserVerification(user_id);
+    const verifiedUser = await this.userService.updateUserVerification(user_id);
+    if (!verifiedUser) {
+      throw new BadRequestException('User not found');
+    }
 
-    return true;
+    const tokens = await this.getSessionTokens(verifiedUser);
+    return this.toLoginResponse(tokens);
   }
 
   async resendUserCode(resendCodeDto: ResendCodeDto): Promise<string> {
@@ -187,10 +202,7 @@ export class AuthService {
 
     // Use the same token generation method as OAuth logins (20 days, no refresh token)
     const tokens = await this.getSessionTokens(existingUser);
-    return {
-      accessToken: tokens.accessToken,
-      // No refresh token
-    };
+    return this.toLoginResponse(tokens);
   }
 
   async forgotPassword(data: ForgotPasswordDto): Promise<object> {

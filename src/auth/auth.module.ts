@@ -5,9 +5,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
-import { UsersEntity } from 'src/users/entitites/users.entity';
 import { VerificationEntity } from 'src/users/entitites/verification.entity';
-import { UsersService } from 'src/users/users.service';
+import { UsersModule } from 'src/users/users.module';
 import { JwtStrategy } from './utils/jwt.stategy';
 import { GoogleStrategy } from './utils/google.strategy';
 import { JwtService } from '@nestjs/jwt';
@@ -21,11 +20,12 @@ import googleOauthConfig from './config/google-oauth.config';
     }),
     PassportModule,
     ConfigModule.forFeature(googleOauthConfig),
-    TypeOrmModule.forFeature([UsersEntity, VerificationEntity]),
+    UsersModule,
+    TypeOrmModule.forFeature([VerificationEntity]),
     EmailModule,
   ],
   controllers: [AuthController],
-  providers: [AuthService, UsersService, JwtStrategy, GoogleStrategy, JwtService],
+  providers: [AuthService, JwtStrategy, GoogleStrategy, JwtService],
   exports: [],
 })
 export class AuthModule {}

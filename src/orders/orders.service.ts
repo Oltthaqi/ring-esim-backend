@@ -1291,6 +1291,11 @@ export class OrdersService {
       smdpServer: order.smdpServer,
       urlQrCode: order.urlQrCode,
       userSimName: order.userSimName,
+      ...(order.user && {
+        user_email: order.user.email ?? undefined,
+        user_first_name: order.user.first_name ?? undefined,
+        user_last_name: order.user.last_name ?? undefined,
+      }),
       errorMessage: order.errorMessage,
       paymentIntentId: order.paymentIntentId,
       paymentStatus: order.paymentStatus,

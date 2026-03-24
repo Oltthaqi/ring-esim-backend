@@ -1,7 +1,12 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { Cron } from '@nestjs/schedule';
@@ -15,6 +20,7 @@ import {
   CountryOperatorDto,
 } from './dto/package-template-details.dto';
 import { ListDetailedLocationZoneResponseDto } from '../location-zone/dto/list-detailed-location-zone.dto';
+import { UpdatePackageTemplateDto } from './dto/update-package-template.dto';
 
 type Raw = Record<string, any>;
 interface Normalized {
@@ -119,6 +125,121 @@ export class PackageTemplatesService {
       relations: ['zone'],
       order: { packageTemplateName: 'ASC' },
     });
+  }
+
+  private assertOcsStatus(data: Raw | null | undefined): void {
+    const code = data?.status?.code;
+    if (code !== 0) {
+      const msg =
+        typeof data?.status?.msg === 'string'
+          ? data.status.msg
+          : 'OCS request failed';
+      throw new BadRequestException(msg);
+    }
+  }
+
+  private buildModifyPPTCorePayload(t: Raw, newCost: number): Raw {
+    const id = Number(t.prepaidpackagetemplateid);
+    const resellerid = Number(t.resellerid);
+    const locationzoneid = Number(t.locationzoneid);
+    const perioddays = Number(t.perioddays);
+    if (
+      !Number.isFinite(id) ||
+      !Number.isFinite(resellerid) ||
+      !Number.isFinite(locationzoneid) ||
+      !Number.isFinite(perioddays)
+    ) {
+      throw new BadRequestException(
+        'OCS template is missing required fields for modifyPPTCore',
+      );
+    }
+    const core: Raw = {
+      prepaidpackagetemplateid: id,
+      prepaidpackagetemplatename: String(t.prepaidpackagetemplatename ?? ''),
+      resellerid,
+      locationzoneid,
+      perioddays,
+      cost: newCost,
+    };
+    if (t.destinationzoneid != null && t.destinationzoneid !== '') {
+      const dz = Number(t.destinationzoneid);
+      if (Number.isFinite(dz)) core.destinationzoneid = dz;
+    }
+    if (t.databyte != null && t.databyte !== '') {
+      const db = Number(t.databyte);
+      if (Number.isFinite(db)) core.databyte = db;
+    }
+    for (const key of [
+      'mocsecond',
+      'mtcsecond',
+      'mosmsnumber',
+      'mtsmsnumber',
+    ] as const) {
+      if (t[key] != null && t[key] !== '') {
+        const n = Number(t[key]);
+        if (Number.isFinite(n)) core[key] = n;
+      }
+    }
+    if (t.esimSponsor != null && t.esimSponsor !== '') {
+      const sp = Number(t.esimSponsor);
+      if (Number.isFinite(sp)) core.esimSponsor = sp;
+    }
+    return { modifyPPTCore: core };
+  }
+
+  /**
+   * Update package sell price: listPrepaidPackageTemplate → modifyPPTCore (cost), then persist locally.
+   */
+  async updatePackage(id: string, dto: UpdatePackageTemplateDto) {
+    if (dto.price === undefined || dto.price === null) {
+      throw new BadRequestException('price is required');
+    }
+    const newCost = Number(dto.price);
+    if (!Number.isFinite(newCost) || newCost <= 0) {
+      throw new BadRequestException('price must be a positive number');
+    }
+
+    const row = await this.findOne(id);
+    if (!row) {
+      throw new NotFoundException(`Package template ${id} not found`);
+    }
+
+    const templateIdNum = Number(row.packageTemplateId);
+    if (!Number.isFinite(templateIdNum)) {
+      throw new BadRequestException('Invalid packageTemplateId on record');
+    }
+
+    const listRes = await this.ocs.post<Raw>({
+      listPrepaidPackageTemplate: { templateId: templateIdNum },
+    });
+    this.assertOcsStatus(listRes);
+
+    const templates = listRes?.listPrepaidPackageTemplate?.template;
+    const t = Array.isArray(templates) ? templates[0] : null;
+    if (!t) {
+      throw new NotFoundException(
+        `OCS has no prepaid package template for id ${templateIdNum}`,
+      );
+    }
+
+    const modifyBody = this.buildModifyPPTCorePayload(t, newCost);
+    const modRes = await this.ocs.post<Raw>(modifyBody);
+    this.assertOcsStatus(modRes);
+
+    row.price = newCost;
+    await this.pkgRepo.save(row);
+
+    return {
+      id: row.id,
+      packageTemplateId: row.packageTemplateId,
+      title: row.packageTemplateName,
+      price: Number(row.price),
+      currency: row.currency ?? 'EUR',
+      periodDays: row.periodDays ?? null,
+      data: row.volume ?? null,
+      zoneId: Number(row.zoneId),
+      zoneName: row.zoneName,
+    };
   }
 
   async syncFromOcs(resellerId: number) {

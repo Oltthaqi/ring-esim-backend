@@ -172,6 +172,25 @@ export class OrderResponseDto {
   userSimName?: string;
 
   @ApiPropertyOptional({
+    description:
+      'Account email (present when the order is loaded with user relation, e.g. GET /orders?all=true for admins)',
+    example: 'customer@example.com',
+  })
+  user_email?: string;
+
+  @ApiPropertyOptional({
+    description: 'Account first name (same conditions as user_email)',
+    example: 'Jane',
+  })
+  user_first_name?: string;
+
+  @ApiPropertyOptional({
+    description: 'Account last name (same conditions as user_email)',
+    example: 'Doe',
+  })
+  user_last_name?: string;
+
+  @ApiPropertyOptional({
     description: 'Error message if order failed',
     example: 'Package allocation failed',
   })

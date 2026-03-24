@@ -60,7 +60,7 @@ export class AuthController {
   async verifyUser(
     @Param('user_id') user_id: string,
     @Body() verifyUserDto: VerifyUserDto,
-  ): Promise<boolean> {
+  ): Promise<{ accessToken: string; access_token: string }> {
     return await this.authService.verifyUser(user_id, verifyUserDto);
   }
 
@@ -115,7 +115,8 @@ export class AuthController {
       throw new UnauthorizedException('User not found');
     }
 
-    return this.authService.getSessionTokens(user);
+    const tokens = await this.authService.getSessionTokens(user);
+    return this.authService.toLoginResponse(tokens);
   }
 
   @Get('google/login')

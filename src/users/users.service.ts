@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { UsersEntity } from './entitites/users.entity';
 import { In, Like, Repository } from 'typeorm';
+import { UserCreditsBalance } from 'src/credits/entities/user-credits-balance.entity';
+import { AdminListedUser } from './types/admin-listed-user.type';
 import { CreateUserDto } from './dto/create-user.dto';
 import PagableParamsDto from 'src/common/dto/pagable-params.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -14,6 +16,8 @@ export class UsersService {
   constructor(
     @InjectRepository(UsersEntity)
     private readonly usersRepository: Repository<UsersEntity>,
+    @InjectRepository(UserCreditsBalance)
+    private readonly userCreditsBalanceRepository: Repository<UserCreditsBalance>,
   ) {}
 
   private randomInteger(min: number, max: number) {
@@ -236,7 +240,7 @@ export class UsersService {
   }
   async getAllUsers(
     params: PagableParamsDto,
-  ): Promise<{ data: UsersEntity[]; total: number }> {
+  ): Promise<{ data: AdminListedUser[]; total: number }> {
     const { page, limit, search, status } = params;
 
     const [data, total] = await this.usersRepository.findAndCount({
@@ -249,7 +253,51 @@ export class UsersService {
       take: limit,
       order: { created_at: 'DESC' },
     });
-    return { data, total };
+
+    if (data.length === 0) {
+      return { data: [], total };
+    }
+
+    const ids = data.map((u) => u.id);
+
+    const [balances, referralRows] = await Promise.all([
+      this.userCreditsBalanceRepository.find({
+        where: { user_id: In(ids) },
+        select: ['user_id', 'balance', 'currency'],
+      }),
+      this.usersRepository
+        .createQueryBuilder('u')
+        .select('u.referred_by_user_id', 'referrerId')
+        .addSelect('COUNT(u.id)', 'cnt')
+        .where('u.referred_by_user_id IN (:...ids)', { ids })
+        .andWhere('u.is_deleted = :deleted', { deleted: false })
+        .groupBy('u.referred_by_user_id')
+        .getRawMany<{ referrerId: string; cnt: string }>(),
+    ]);
+
+    const balanceByUserId = new Map(
+      balances.map((b) => [b.user_id, b] as const),
+    );
+    const referralCountByUserId = new Map<string, number>();
+    for (const row of referralRows) {
+      if (row.referrerId) {
+        referralCountByUserId.set(row.referrerId, Number(row.cnt));
+      }
+    }
+
+    const DEFAULT_CREDIT_CURRENCY = 'EUR';
+
+    const enriched: AdminListedUser[] = data.map((user) => {
+      const bal = balanceByUserId.get(user.id);
+      return {
+        ...user,
+        credit_balance: Number(bal?.balance ?? 0),
+        credit_currency: bal?.currency || DEFAULT_CREDIT_CURRENCY,
+        referral_count: referralCountByUserId.get(user.id) ?? 0,
+      };
+    });
+
+    return { data: enriched, total };
   }
 
   async updateUserVerification(id: string): Promise<UsersEntity | null> {
