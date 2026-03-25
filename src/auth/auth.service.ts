@@ -40,7 +40,10 @@ import { Status } from 'src/common/enums/status.enum';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private readonly DEFAULT_ACCESS_TOKEN_EXPIRATION = 20 * 24 * 60 * 60; // 20 days in seconds (1,728,000)
+  /** Default when ACCESS_TOKEN_EXPIRATION_SECONDS is unset or invalid. */
+  private static readonly DEFAULT_ACCESS_TOKEN_EXPIRATION =
+    Math.floor(10 * 365.25 * 24 * 60 * 60); // ~10 years (override via env)
+  private readonly accessTokenExpirationSeconds: number;
   private readonly kms: AWS.KMS;
 
   constructor(
@@ -52,6 +55,14 @@ export class AuthService {
     private readonly emailService: EmailService,
     private readonly dataSource: DataSource,
   ) {
+    const fromEnv = Number(
+      this.configService.get<string>('ACCESS_TOKEN_EXPIRATION_SECONDS'),
+    );
+    this.accessTokenExpirationSeconds =
+      Number.isFinite(fromEnv) && fromEnv > 0
+        ? Math.floor(fromEnv)
+        : AuthService.DEFAULT_ACCESS_TOKEN_EXPIRATION;
+
     AWS.config.update({
       accessKeyId: this.configService.get('KMS_AWS_ACCESS_KEY_ID'),
       secretAccessKey: this.configService.get('KMS_AWS_SECRET_ACCESS_KEY'),
@@ -200,7 +211,7 @@ export class AuthService {
       throw new BadRequestException('Invalid credentials');
     }
 
-    // Use the same token generation method as OAuth logins (20 days, no refresh token)
+    // Same JWT session as OAuth (TTL from ACCESS_TOKEN_EXPIRATION_SECONDS or default)
     const tokens = await this.getSessionTokens(existingUser);
     return this.toLoginResponse(tokens);
   }
@@ -325,8 +336,7 @@ export class AuthService {
     user: UsersEntity,
     accessTokenExpiration?: number,
   ) {
-    // Generate only access token (20 days expiration)
-    // No refresh token needed for mobile apps
+    // Single access JWT (TTL configurable via ACCESS_TOKEN_EXPIRATION_SECONDS)
     const accessToken = await this.generateJwt(
       {
         uuid: user.id,
@@ -336,7 +346,7 @@ export class AuthService {
         role: (user as any).role ?? Role.USER,
       },
       AuthService.getExpirationDate(
-        accessTokenExpiration ?? this.DEFAULT_ACCESS_TOKEN_EXPIRATION,
+        accessTokenExpiration ?? this.accessTokenExpirationSeconds,
       ),
     );
 

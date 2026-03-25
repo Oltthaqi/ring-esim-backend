@@ -20,6 +20,7 @@ import { PromoCodesModule } from './promo-codes/promo-codes.module';
 import { CreditsModule } from './credits/credits.module';
 import { CartModule } from './cart/cart.module';
 import { StatsModule } from './stats/stats.module';
+import { ResellersModule } from './resellers/resellers.module';
 import { ScheduleModule } from '@nestjs/schedule';
 
 @Module({
@@ -61,6 +62,7 @@ import { ScheduleModule } from '@nestjs/schedule';
     CreditsModule,
     CartModule,
     StatsModule,
+    ResellersModule,
   ],
   controllers: [AppController],
   providers: [AppService],
