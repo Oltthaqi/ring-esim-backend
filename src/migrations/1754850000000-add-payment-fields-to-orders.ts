@@ -34,4 +34,3 @@ export class AddPaymentFieldsToOrders1754850000000
     await queryRunner.dropColumn('orders', 'paymentIntentId');
   }
 }
-

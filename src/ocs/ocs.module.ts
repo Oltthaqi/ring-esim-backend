@@ -1,17 +1,18 @@
 // ocs.module.ts
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
+import { TypeOrmModule } from '@nestjs/typeorm';
 import { OcsService } from './ocs.service';
 import { OcsController } from './ocs.controller';
+import { UpstreamApiLog } from './entities/upstream-api-log.entity';
 
 @Module({
   imports: [
     HttpModule.register({
-      timeout: 15000,
+      timeout: 30000,
       maxRedirects: 0,
-      // If their TLS cert is non-public and you must ignore it (only if they ask you to):
-      // httpsAgent: new (require('https').Agent)({ rejectUnauthorized: false }),
     }),
+    TypeOrmModule.forFeature([UpstreamApiLog]),
   ],
   controllers: [OcsController],
   providers: [OcsService],

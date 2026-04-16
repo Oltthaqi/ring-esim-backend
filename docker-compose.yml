@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: ring_esim
+      MYSQL_USER: ring
+      MYSQL_PASSWORD: ringpassword
+    ports:
+      - '3306:3306'
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    ports:
+      - '3002:3000'
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PORT: 3000
+      DATABASE_HOST: db
+      DATABASE_PORT: 3306
+      DATABASE_NAME: ring_esim
+      DATABASE_USERNAME: ring
+      DATABASE_PASSWORD: ringpassword
+    env_file:
+      - .env
+
+volumes:
+  mysql_data:

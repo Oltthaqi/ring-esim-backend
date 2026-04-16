@@ -1,16 +1,23 @@
 import {
   BadGatewayException,
   BadRequestException,
-  ConflictException,
+
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
+import * as bcrypt from 'bcryptjs';
 import { Reseller } from './entities/reseller.entity';
 import { ResellerRetailOverride } from './entities/reseller-retail-override.entity';
+import {
+  BalanceTransaction,
+  BalanceTransactionType,
+} from './entities/balance-transaction.entity';
 import { PackageTemplate } from '../package-template/entities/package-template.entity';
+import { UsersEntity } from '../users/entitites/users.entity';
+import { Role } from '../users/enums/role.enum';
 import {
   isTelcoSuccess,
   telcoStatusFromResponse,
@@ -18,10 +25,12 @@ import {
   TelcoService,
 } from '../telco/telco.service';
 import { CreateResellerDto } from './dto/create-reseller.dto';
+import { CreateResellerWithUserDto } from './dto/create-reseller-with-user.dto';
 import { UpdateResellerDto } from './dto/update-reseller.dto';
 import { AdminAdjustTelcoBalanceDto } from './dto/admin-adjust-telco-balance.dto';
 import { InternalLedgerDto } from './dto/internal-ledger.dto';
 import { UpsertRetailOverrideDto } from './dto/upsert-retail-override.dto';
+import { Decimal4Util } from '../common/utils/decimal4.util';
 
 function decToNumber(v: string | null | undefined): number | null {
   if (v == null || v === '') return null;
@@ -62,7 +71,10 @@ export type ResellerAdminDto = {
   currency: string;
   contactEmail: string | null;
   creditLimit: number | null;
-  internalLedgerBalance: number;
+  balance: number;
+  discountPct: number;
+  allowDebt: boolean;
+  isActive: boolean;
   createdAt: string;
   updatedAt: string;
   telcoReseller?: TelcoResellerSubset;
@@ -92,7 +104,10 @@ export class ResellersService {
     private readonly overrideRepo: Repository<ResellerRetailOverride>,
     @InjectRepository(PackageTemplate)
     private readonly packageRepo: Repository<PackageTemplate>,
+    @InjectRepository(BalanceTransaction)
+    private readonly txRepo: Repository<BalanceTransaction>,
     private readonly telco: TelcoService,
+    private readonly dataSource: DataSource,
   ) {}
 
   private mapResellerBase(r: Reseller): ResellerAdminDto {
@@ -103,7 +118,10 @@ export class ResellersService {
       currency: r.currency || 'EUR',
       contactEmail: r.contactEmail,
       creditLimit: decToNumber(r.creditLimit),
-      internalLedgerBalance: decToNumber(r.internalLedgerBalance) ?? 0,
+      balance: decToNumber(r.balance) ?? 0,
+      discountPct: decToNumber(r.discountPct) ?? 0,
+      allowDebt: r.allowDebt,
+      isActive: r.isActive,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
     };
@@ -194,21 +212,12 @@ export class ResellersService {
   }
 
   async create(dto: CreateResellerDto): Promise<ResellerAdminDto> {
-    const existing = await this.resellerRepo.findOne({
-      where: { telcoResellerId: dto.telcoResellerId },
-    });
-    if (existing) {
-      throw new ConflictException({
-        message: 'A reseller with this telcoResellerId already exists',
-      });
-    }
     const row = this.resellerRepo.create({
       name: dto.name,
-      telcoResellerId: dto.telcoResellerId,
+      telcoResellerId: dto.telcoResellerId ?? 590,
       currency: (dto.currency ?? 'EUR').trim() || 'EUR',
       contactEmail: dto.contactEmail ?? null,
-      creditLimit:
-        dto.creditLimit != null ? String(dto.creditLimit) : null,
+      creditLimit: dto.creditLimit != null ? String(dto.creditLimit) : null,
     });
     const saved = await this.resellerRepo.save(row);
     return this.enrichWithTelco(saved);
@@ -229,6 +238,15 @@ export class ResellersService {
     if (dto.creditLimit !== undefined) {
       row.creditLimit =
         dto.creditLimit != null ? String(dto.creditLimit) : null;
+    }
+    if (dto.discountPct !== undefined) {
+      row.discountPct = dto.discountPct.toFixed(2);
+    }
+    if (dto.allowDebt !== undefined) {
+      row.allowDebt = dto.allowDebt;
+    }
+    if (dto.isActive !== undefined) {
+      row.isActive = dto.isActive;
     }
     const saved = await this.resellerRepo.save(row);
     return this.enrichWithTelco(saved);
@@ -266,8 +284,8 @@ export class ResellersService {
       }
 
       const txType =
-        (dto.transactionType?.trim() ||
-          this.telco.getDefaultResellerBalanceType()) ||
+        dto.transactionType?.trim() ||
+        this.telco.getDefaultResellerBalanceType() ||
         'Wire';
       const data = await this.telco.modifyResellerBalance({
         resellerId: row.telcoResellerId,
@@ -291,12 +309,12 @@ export class ResellersService {
   async adjustInternalLedger(
     id: string,
     dto: InternalLedgerDto,
-  ): Promise<{ ok: true; internalLedgerBalance: number }> {
+  ): Promise<{ ok: true; balance: number }> {
     const row = await this.resellerRepo.findOne({ where: { id } });
     if (!row) {
       throw new NotFoundException({ message: 'Reseller not found' });
     }
-    const cur = decToNumber(row.internalLedgerBalance) ?? 0;
+    const cur = decToNumber(row.balance) ?? 0;
     const next =
       dto.setBalance === true ? Number(dto.delta) : cur + Number(dto.delta);
     if (!Number.isFinite(next)) {
@@ -311,9 +329,9 @@ export class ResellersService {
         });
       }
     }
-    row.internalLedgerBalance = next.toFixed(4);
+    row.balance = next.toFixed(4);
     await this.resellerRepo.save(row);
-    return { ok: true, internalLedgerBalance: next };
+    return { ok: true, balance: next };
   }
 
   async listRetailOverrides(
@@ -372,8 +390,7 @@ export class ResellersService {
         resellerId,
         packageTemplateId: dto.packageTemplateId,
         mode: dto.mode,
-        currency:
-          (dto.currency ?? reseller.currency ?? 'EUR').trim() || 'EUR',
+        currency: (dto.currency ?? reseller.currency ?? 'EUR').trim() || 'EUR',
         retailPrice: null,
         markupPercent: null,
         wholesaleReferencePrice: null,
@@ -448,6 +465,162 @@ export class ResellersService {
         message: e instanceof Error ? e.message : 'Telco request failed',
       });
     }
+  }
+
+  // ── Reseller Platform Methods ──
+
+  async createResellerWithUser(
+    dto: CreateResellerWithUserDto,
+    performedByUserId: string,
+  ): Promise<{
+    reseller: ResellerAdminDto;
+    user: { id: string; email: string };
+  }> {
+    return this.dataSource.transaction(async (manager) => {
+      // Create reseller
+      const reseller = manager.create(Reseller, {
+        name: dto.name,
+        telcoResellerId: dto.telcoResellerId ?? 590,
+        currency: (dto.currency ?? 'EUR').trim() || 'EUR',
+        contactEmail: dto.contactEmail ?? dto.email,
+        creditLimit: dto.creditLimit != null ? String(dto.creditLimit) : null,
+        discountPct: dto.discountPct.toFixed(2),
+        allowDebt: dto.allowDebt ?? false,
+        isActive: true,
+        balance: '0.0000',
+      });
+      const savedReseller = await manager.save(reseller);
+
+      // Create user account for the reseller
+      const passwordHash = await bcrypt.hash(dto.password, 12);
+      const user = manager.create(UsersEntity, {
+        email: dto.email,
+        password: passwordHash,
+        first_name: dto.name,
+        last_name: '',
+        role: Role.RESELLER,
+        reseller_id: savedReseller.id,
+        is_verified: true,
+      });
+      const savedUser = await manager.save(user);
+
+      // Optional initial balance top-up
+      if (dto.initialBalance && dto.initialBalance > 0) {
+        const balanceStr = Decimal4Util.toString(dto.initialBalance);
+        savedReseller.balance = balanceStr;
+        await manager.save(savedReseller);
+
+        await manager.save(
+          manager.create(BalanceTransaction, {
+            resellerId: savedReseller.id,
+            type: BalanceTransactionType.TOPUP,
+            amount: balanceStr,
+            balanceAfter: balanceStr,
+            description: 'Initial balance',
+            performedBy: performedByUserId,
+          }),
+        );
+      }
+
+      return {
+        reseller: this.mapResellerBase(savedReseller),
+        user: { id: savedUser.id, email: savedUser.email },
+      };
+    });
+  }
+
+  async topupBalance(
+    resellerId: string,
+    amount: number,
+    description: string | undefined,
+    performedByUserId: string,
+  ): Promise<{ balance: number }> {
+    if (amount <= 0) {
+      throw new BadRequestException({ message: 'Amount must be positive' });
+    }
+
+    return this.dataSource.transaction(async (manager) => {
+      const reseller = await manager
+        .createQueryBuilder(Reseller, 'r')
+        .setLock('pessimistic_write')
+        .where('r.id = :id', { id: resellerId })
+        .getOne();
+
+      if (!reseller)
+        throw new NotFoundException({ message: 'Reseller not found' });
+
+      const amountStr = Decimal4Util.toString(amount);
+      const newBalance = Decimal4Util.add(reseller.balance, amountStr);
+      reseller.balance = newBalance;
+      await manager.save(reseller);
+
+      await manager.save(
+        manager.create(BalanceTransaction, {
+          resellerId,
+          type: BalanceTransactionType.TOPUP,
+          amount: amountStr,
+          balanceAfter: newBalance,
+          description: description ?? null,
+          performedBy: performedByUserId,
+        }),
+      );
+
+      return { balance: parseFloat(newBalance) };
+    });
+  }
+
+  async adjustBalance(
+    resellerId: string,
+    amount: number,
+    description: string,
+    performedByUserId: string,
+  ): Promise<{ balance: number }> {
+    return this.dataSource.transaction(async (manager) => {
+      const reseller = await manager
+        .createQueryBuilder(Reseller, 'r')
+        .setLock('pessimistic_write')
+        .where('r.id = :id', { id: resellerId })
+        .getOne();
+
+      if (!reseller)
+        throw new NotFoundException({ message: 'Reseller not found' });
+
+      const amountStr = Decimal4Util.toString(amount);
+      const newBalance = Decimal4Util.add(reseller.balance, amountStr);
+      reseller.balance = newBalance;
+      await manager.save(reseller);
+
+      await manager.save(
+        manager.create(BalanceTransaction, {
+          resellerId,
+          type: BalanceTransactionType.ADJUSTMENT,
+          amount: amountStr,
+          balanceAfter: newBalance,
+          description,
+          performedBy: performedByUserId,
+        }),
+      );
+
+      return { balance: parseFloat(newBalance) };
+    });
+  }
+
+  async getTransactions(
+    resellerId: string,
+    page = 1,
+    limit = 20,
+  ): Promise<{ data: BalanceTransaction[]; total: number }> {
+    const [data, total] = await this.txRepo.findAndCount({
+      where: { resellerId },
+      order: { createdAt: 'DESC' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+    return { data, total };
+  }
+
+  async getResellerById(id: string): Promise<Reseller | null> {
+    return this.resellerRepo.findOne({ where: { id } });
   }
 
   private async requireReseller(id: string): Promise<Reseller> {

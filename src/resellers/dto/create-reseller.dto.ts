@@ -13,9 +13,10 @@ export class CreateResellerDto {
   @MaxLength(255)
   name: string;
 
+  @IsOptional()
   @IsInt()
   @Min(1)
-  telcoResellerId: number;
+  telcoResellerId?: number;
 
   @IsOptional()
   @IsString()

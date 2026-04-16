@@ -30,7 +30,7 @@ import { PromoCodeStatus } from './entities/promo-code.entity';
 @ApiBearerAuth()
 @Controller('admin/promo-codes')
 @UseGuards(AuthGuard('jwt'), JwtRolesGuard)
-@Roles(Role.ADMIN)
+@Roles(Role.ADMIN, Role.SUPER_ADMIN)
 export class PromoCodesAdminController {
   constructor(private readonly promoCodesService: PromoCodesService) {}
 

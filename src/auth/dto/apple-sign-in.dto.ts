@@ -10,4 +10,3 @@ export class AppleSignInDto {
   @IsString()
   identityToken: string;
 }
-

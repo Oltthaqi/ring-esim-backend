@@ -1,4 +1,13 @@
-import { IsEmail, IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsEmail,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class UpdateResellerDto {
   @IsOptional()
@@ -19,4 +28,18 @@ export class UpdateResellerDto {
   @IsOptional()
   @IsNumber()
   creditLimit?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100)
+  discountPct?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  allowDebt?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
 }

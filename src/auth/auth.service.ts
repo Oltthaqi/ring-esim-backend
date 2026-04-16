@@ -41,8 +41,9 @@ import { Status } from 'src/common/enums/status.enum';
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
   /** Default when ACCESS_TOKEN_EXPIRATION_SECONDS is unset or invalid. */
-  private static readonly DEFAULT_ACCESS_TOKEN_EXPIRATION =
-    Math.floor(10 * 365.25 * 24 * 60 * 60); // ~10 years (override via env)
+  private static readonly DEFAULT_ACCESS_TOKEN_EXPIRATION = Math.floor(
+    10 * 365.25 * 24 * 60 * 60,
+  ); // ~10 years (override via env)
   private readonly accessTokenExpirationSeconds: number;
   private readonly kms: AWS.KMS;
 
@@ -344,6 +345,7 @@ export class AuthService {
         fullName: `${user.first_name} ${user.last_name}`,
         is_verified: user.is_verified,
         role: (user as any).role ?? Role.USER,
+        reseller_id: (user as any).reseller_id ?? undefined,
       },
       AuthService.getExpirationDate(
         accessTokenExpiration ?? this.accessTokenExpirationSeconds,
@@ -667,7 +669,7 @@ export class AuthService {
     );
 
     // First, try to find user by email
-    let user = await this.userService.getUserByEmail(appleUser.email);
+    const user = await this.userService.getUserByEmail(appleUser.email);
 
     if (user) {
       this.logger.log(

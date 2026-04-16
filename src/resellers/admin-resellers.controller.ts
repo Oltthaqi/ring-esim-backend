@@ -6,9 +6,12 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  ParseIntPipe,
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -23,10 +26,13 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { Role } from '../users/enums/role.enum';
 import { ResellersService } from './resellers.service';
 import { CreateResellerDto } from './dto/create-reseller.dto';
+import { CreateResellerWithUserDto } from './dto/create-reseller-with-user.dto';
 import { UpdateResellerDto } from './dto/update-reseller.dto';
 import { AdminAdjustTelcoBalanceDto } from './dto/admin-adjust-telco-balance.dto';
 import { InternalLedgerDto } from './dto/internal-ledger.dto';
 import { UpsertRetailOverrideDto } from './dto/upsert-retail-override.dto';
+import { TopupBalanceDto } from './dto/topup-balance.dto';
+import { AdjustBalanceDto } from './dto/adjust-balance.dto';
 
 @ApiTags('Admin - Resellers')
 @ApiBearerAuth()
@@ -44,7 +50,9 @@ export class AdminResellersController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Create reseller row (telco id must exist at provider)' })
+  @ApiOperation({
+    summary: 'Create reseller row (telco id must exist at provider)',
+  })
   @ApiResponse({ status: 201, description: 'Created' })
   @ApiResponse({ status: 409, description: 'Duplicate telcoResellerId' })
   create(@Body() dto: CreateResellerDto) {
@@ -109,5 +117,61 @@ export class AdminResellersController {
   @ApiResponse({ status: 502, description: 'Telco error' })
   getTariff(@Param('id', ParseUUIDPipe) id: string) {
     return this.resellersService.getCustomerTariffForReseller(id);
+  }
+
+  // ── Reseller Platform Endpoints ──
+
+  @Post('with-user')
+  @Roles(Role.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Create reseller + admin user in one operation' })
+  @ApiResponse({ status: 201, description: 'Created' })
+  @ApiResponse({ status: 409, description: 'Duplicate telcoResellerId' })
+  createWithUser(
+    @Body() dto: CreateResellerWithUserDto,
+    @Req() req: { user: { uuid: string } },
+  ) {
+    return this.resellersService.createResellerWithUser(dto, req.user.uuid);
+  }
+
+  @Post(':id/topup')
+  @Roles(Role.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Top up reseller balance' })
+  topup(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: TopupBalanceDto,
+    @Req() req: { user: { uuid: string } },
+  ) {
+    return this.resellersService.topupBalance(
+      id,
+      dto.amount,
+      dto.description,
+      req.user.uuid,
+    );
+  }
+
+  @Post(':id/adjust')
+  @Roles(Role.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Manually adjust reseller balance (+ or -)' })
+  adjust(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AdjustBalanceDto,
+    @Req() req: { user: { uuid: string } },
+  ) {
+    return this.resellersService.adjustBalance(
+      id,
+      dto.amount,
+      dto.description,
+      req.user.uuid,
+    );
+  }
+
+  @Get(':id/transactions')
+  @ApiOperation({ summary: 'List reseller balance transactions' })
+  getTransactions(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ) {
+    return this.resellersService.getTransactions(id, page ?? 1, limit ?? 20);
   }
 }

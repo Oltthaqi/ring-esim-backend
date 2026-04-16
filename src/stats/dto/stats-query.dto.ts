@@ -30,4 +30,3 @@ export class UsedCountriesQueryDto {
   @IsEnum(TimePeriod)
   period?: TimePeriod = TimePeriod.MONTH;
 }
-

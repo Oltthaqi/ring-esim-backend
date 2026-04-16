@@ -14,6 +14,7 @@ import { VerificationEntity } from './verification.entity';
 import { Status } from 'src/common/enums/status.enum';
 import { Role } from '../enums/role.enum';
 import { NotificationsEntity } from 'src/notifications/entities/notification.entity';
+import { Reseller } from 'src/resellers/entities/reseller.entity';
 
 @Entity({ name: 'users' })
 export class UsersEntity {
@@ -115,7 +116,12 @@ export class UsersEntity {
   })
   referral_code: string;
 
-  @Column({ name: 'referred_by_user_id', type: 'char', length: 36, nullable: true })
+  @Column({
+    name: 'referred_by_user_id',
+    type: 'char',
+    length: 36,
+    nullable: true,
+  })
   @ApiProperty({
     description: 'The user ID who referred this user',
     type: String,
@@ -126,6 +132,18 @@ export class UsersEntity {
   @ManyToOne(() => UsersEntity, { nullable: true })
   @JoinColumn({ name: 'referred_by_user_id' })
   referred_by_user: UsersEntity;
+
+  @Column({ name: 'reseller_id', type: 'char', length: 36, nullable: true })
+  @ApiProperty({
+    description: 'FK to resellers table (set when role is RESELLER)',
+    type: String,
+    required: false,
+  })
+  reseller_id: string | null;
+
+  @ManyToOne(() => Reseller, { nullable: true })
+  @JoinColumn({ name: 'reseller_id' })
+  reseller: Reseller;
 
   @OneToMany(() => NotificationsEntity, (notification) => notification.user)
   notifications: NotificationsEntity[];

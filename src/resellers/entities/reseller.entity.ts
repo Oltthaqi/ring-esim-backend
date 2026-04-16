@@ -12,7 +12,6 @@ export class Reseller {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Index({ unique: true })
   @Column({ name: 'telco_reseller_id', type: 'int' })
   telcoResellerId: number;
 
@@ -22,7 +21,12 @@ export class Reseller {
   @Column({ type: 'varchar', length: 8, default: 'EUR' })
   currency: string;
 
-  @Column({ name: 'contact_email', type: 'varchar', length: 255, nullable: true })
+  @Column({
+    name: 'contact_email',
+    type: 'varchar',
+    length: 255,
+    nullable: true,
+  })
   contactEmail: string | null;
 
   @Column({
@@ -41,7 +45,30 @@ export class Reseller {
     scale: 4,
     default: '0.0000',
   })
-  internalLedgerBalance: string;
+  balance: string;
+
+  @Column({
+    name: 'discount_pct',
+    type: 'decimal',
+    precision: 5,
+    scale: 2,
+    default: '0.00',
+  })
+  discountPct: string;
+
+  @Column({
+    name: 'allow_debt',
+    type: 'boolean',
+    default: false,
+  })
+  allowDebt: boolean;
+
+  @Column({
+    name: 'is_active',
+    type: 'boolean',
+    default: true,
+  })
+  isActive: boolean;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamp' })
   createdAt: Date;

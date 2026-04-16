@@ -910,7 +910,7 @@ export class OrdersService {
       await this.orderRepository.update(orderId, {
         status: OrderStatus.FAILED,
         errorMessage: error.message || 'Top-up failed',
-        errorDetails: error.response?.data || (error as any),
+        errorDetails: error.response?.data || error,
       });
 
       throw new BadRequestException(`Top-up failed: ${error.message}`);

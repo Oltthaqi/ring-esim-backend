@@ -38,4 +38,3 @@ export class CreateUserAppleDto {
   @IsEmpty()
   password: string;
 }
-

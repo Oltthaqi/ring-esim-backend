@@ -9,4 +9,3 @@ export default registerAs('appleOAuth', () => ({
   mobileRedirectUrl:
     process.env.APPLE_MOBILE_REDIRECT_URL || 'ringesim://oauth/callback',
 }));
-

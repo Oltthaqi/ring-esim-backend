@@ -479,7 +479,7 @@ export class UsageService {
 
     // Get package activation and expiration dates
     let firstUsageDate = usage.firstUsageDate;
-    let lastUsageDate = usage.lastUsageDate;
+    const lastUsageDate = usage.lastUsageDate;
     let packageStartDate = usage.packageStartDate;
     let packageEndDate = usage.packageEndDate;
 
@@ -495,10 +495,10 @@ export class UsageService {
     }
 
     // For now, we don't have country/operator info from packages API
-    let lastUsageCountry: string | null = null;
-    let lastUsageMcc: number | null = null;
-    let lastUsageMnc: number | null = null;
-    let lastUsageOperator: string | null = null;
+    const lastUsageCountry: string | null = null;
+    const lastUsageMcc: number | null = null;
+    const lastUsageMnc: number | null = null;
+    const lastUsageOperator: string | null = null;
 
     // Calculate remaining data using package-specific limit
     const packageDataLimit = packageUsage.pckdatabyte;

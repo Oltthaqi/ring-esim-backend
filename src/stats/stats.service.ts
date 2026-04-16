@@ -83,7 +83,7 @@ export class StatsService {
     let startDate: Date;
     let groupByFormat: string;
     let periodLabels: string[];
-    let periodKeys: string[] = [];
+    const periodKeys: string[] = [];
 
     switch (period) {
       case TimePeriod.WEEK:

@@ -32,6 +32,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     fullName: string;
     is_verified: boolean;
     role: Role;
+    reseller_id?: string;
   }) {
     return {
       uuid: payload.uuid,
@@ -39,6 +40,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       fullName: payload.fullName,
       is_verified: payload.is_verified,
       role: payload.role,
+      reseller_id: payload.reseller_id,
     };
   }
 }

@@ -47,7 +47,9 @@ export class PackageTemplatesService {
     private readonly zones: LocationZoneService,
   ) {}
 
-  private countriesFromStoredIso2(iso2s: string[] | null): CountryOperatorDto[] {
+  private countriesFromStoredIso2(
+    iso2s: string[] | null,
+  ): CountryOperatorDto[] {
     if (!iso2s?.length) return [];
     return iso2s.map((countryIso2) => ({
       countryIso2,

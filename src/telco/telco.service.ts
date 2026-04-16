@@ -6,7 +6,9 @@ import { AxiosError } from 'axios';
 
 export type TelcoStatus = { code?: number; msg?: string };
 
-export function telcoStatusFromResponse(data: unknown): TelcoStatus | undefined {
+export function telcoStatusFromResponse(
+  data: unknown,
+): TelcoStatus | undefined {
   const d = data as { status?: TelcoStatus };
   return d?.status;
 }
@@ -64,8 +66,10 @@ export class TelcoService implements OnModuleInit {
 
   getDefaultResellerBalanceType(): string {
     return (
-      this.config.get<string>('TELCO_MODIFY_RESELLER_BALANCE_TYPE') || 'Wire'
-    ).trim() || 'Wire';
+      (
+        this.config.get<string>('TELCO_MODIFY_RESELLER_BALANCE_TYPE') || 'Wire'
+      ).trim() || 'Wire'
+    );
   }
 
   async post<T = unknown>(body: unknown): Promise<T> {

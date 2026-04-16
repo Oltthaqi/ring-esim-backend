@@ -34,7 +34,10 @@ export class ResellerRetailOverride {
   @Column({ name: 'package_template_id', type: 'char', length: 36 })
   packageTemplateId: string;
 
-  @ManyToOne(() => PackageTemplate, { onDelete: 'CASCADE', onUpdate: 'CASCADE' })
+  @ManyToOne(() => PackageTemplate, {
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  })
   @JoinColumn({ name: 'package_template_id' })
   packageTemplate?: PackageTemplate;
 

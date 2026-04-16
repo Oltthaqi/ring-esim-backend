@@ -18,13 +18,17 @@ export class DestinationsService {
   ) {}
 
   /** Placeholder / test zone names (list2, list6, …) — not shown as sellable destinations. */
-  private isJunkDestinationZoneName(zoneName: string | null | undefined): boolean {
+  private isJunkDestinationZoneName(
+    zoneName: string | null | undefined,
+  ): boolean {
     const t = String(zoneName ?? '').trim();
     return /^list\s*\d+\s*$/i.test(t);
   }
 
   /** OCS may still emit legacy/internal zone names we never surface in the catalog. */
-  private shouldHideZoneFromCatalog(zoneName: string | null | undefined): boolean {
+  private shouldHideZoneFromCatalog(
+    zoneName: string | null | undefined,
+  ): boolean {
     const nameLc = String(zoneName ?? '').toLowerCase();
     return nameLc.includes('kudo') || nameLc.includes('kuda');
   }
@@ -33,8 +37,12 @@ export class DestinationsService {
    * Worldwide / global product: lowercase name contains substring `global`
    * (GLOBAL, Globale, GlObal, etc.). Used for type "global" and region packages.
    */
-  private isWorldwideGlobalZoneName(zoneName: string | null | undefined): boolean {
-    return String(zoneName ?? '').toLowerCase().includes('global');
+  private isWorldwideGlobalZoneName(
+    zoneName: string | null | undefined,
+  ): boolean {
+    return String(zoneName ?? '')
+      .toLowerCase()
+      .includes('global');
   }
 
   private parsePositivePrice(
@@ -236,9 +244,7 @@ export class DestinationsService {
 
     const isGlobal = this.isWorldwideGlobalZoneName(z.zoneName);
     const rawIso = Array.isArray(z.countriesIso2) ? z.countriesIso2 : [];
-    const iso2List = [
-      ...new Set(rawIso.map((c) => String(c).toLowerCase())),
-    ];
+    const iso2List = [...new Set(rawIso.map((c) => String(c).toLowerCase()))];
 
     if (!isGlobal) {
       if (rawIso.length === 0) {
