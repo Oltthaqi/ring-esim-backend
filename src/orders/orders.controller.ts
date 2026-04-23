@@ -211,13 +211,14 @@ export class OrdersController {
   })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @Get()
-  @Roles(Role.USER, Role.ADMIN)
+  @Roles(Role.USER, Role.ADMIN, Role.SUPER_ADMIN)
   async findAll(
     @Request() req: AuthenticatedRequest,
     @Query('all') all?: string,
   ): Promise<OrderResponseDto[]> {
     const userId =
-      req.user.role === Role.ADMIN && all === 'true'
+      (req.user.role === Role.ADMIN || req.user.role === Role.SUPER_ADMIN) &&
+      all === 'true'
         ? undefined
         : req.user.uuid || req.user.id;
     return this.ordersService.findAll(userId);
