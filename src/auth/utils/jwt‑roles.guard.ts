@@ -35,6 +35,10 @@ export class JwtRolesGuard extends AuthGuard('jwt') implements CanActivate {
       throw new ForbiddenException('No role assigned to user');
     }
 
+    if (user.role === Role.SUPER_ADMIN) {
+      return true;
+    }
+
     if (!requiredRoles.includes(user.role)) {
       throw new ForbiddenException(`You cannot access this resource`);
     }
