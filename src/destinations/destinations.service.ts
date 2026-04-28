@@ -53,6 +53,14 @@ export class DestinationsService {
     return Number.isFinite(n) && n > 0 ? n : null;
   }
 
+  /** Check if a package template name indicates a "special" product. */
+  private isSpecialPackageTemplateName(
+    name: string | null | undefined,
+  ): boolean {
+    const lc = String(name ?? '').toLowerCase();
+    return lc.includes('special') || lc.includes('speciale');
+  }
+
   // LIST all sellable destinations: local, regional, special, and worldwide (type "global")
   async getDestinations() {
     const zones = await this.locationZoneRepo.find({
@@ -60,6 +68,17 @@ export class DestinationsService {
       where: { isDeleted: false },
       select: ['zoneId', 'zoneName', 'countriesIso2', 'countryNames'],
     });
+
+    // Find which zoneIds have at least one "special" package template
+    const allTemplates = await this.packageTemplateRepo.find({
+      where: { isDeleted: false },
+      select: ['zoneId', 'packageTemplateName'],
+    });
+    const specialZoneIds = new Set<number>(
+      allTemplates
+        .filter((t) => this.isSpecialPackageTemplateName(t.packageTemplateName))
+        .map((t) => Number(t.zoneId)),
+    );
 
     const rows = zones
       .filter(
@@ -83,12 +102,11 @@ export class DestinationsService {
           ? [...new Set(zone.countryNames)]
           : [];
 
-        const nameLc = (zone.zoneName ?? '').toLowerCase().trim();
         let type: 'global' | 'local' | 'regional' | 'special';
 
         if (this.isWorldwideGlobalZoneName(zone.zoneName)) {
           type = 'global';
-        } else if (nameLc.includes('speciale') || nameLc.includes('special')) {
+        } else if (specialZoneIds.has(Number(zone.zoneId))) {
           type = 'special';
         } else if (uniqueIso2.length === 1) {
           type = 'local';
