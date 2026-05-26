@@ -569,9 +569,8 @@ export class AuthService {
     const newUser = await this.userService.register({
       ...googleUser,
       password: randomPassword,
-      is_verified: true,
-      role: Role.USER,
     });
+    await this.userService.updateUserVerification(newUser.id);
     this.logger.log(
       `[VALIDATE GOOGLE USER] New user registered: ${newUser.email} (ID: ${newUser.id})`,
     );
@@ -758,9 +757,8 @@ export class AuthService {
     const newUser = await this.userService.register({
       ...appleUser,
       password: randomPassword,
-      is_verified: true, // Apple users are automatically verified
-      role: Role.USER,
     });
+    await this.userService.updateUserVerification(newUser.id); // Apple users are automatically verified
     this.logger.log(
       `[VALIDATE APPLE USER] New user registered: ${newUser.email} (ID: ${newUser.id})`,
     );
