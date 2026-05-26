@@ -17,12 +17,4 @@ export class CreateSimpleOrderDto {
   @IsNumber()
   amount: number;
 
-  @ApiPropertyOptional({
-    description: 'Currency code (defaults to EUR)',
-    example: 'EUR',
-    default: 'EUR',
-  })
-  @IsString()
-  @IsOptional()
-  currency?: string;
 }

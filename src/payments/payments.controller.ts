@@ -101,7 +101,7 @@ export class PaymentsController {
     // Create payment intent
     const paymentIntent = await this.paymentsService.createPaymentIntent(
       createPaymentIntentDto.amount,
-      createPaymentIntentDto.currency,
+      order.currency || 'EUR',
       {
         orderId: createPaymentIntentDto.orderId,
         userId: userId,

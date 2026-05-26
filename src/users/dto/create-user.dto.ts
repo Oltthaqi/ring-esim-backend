@@ -78,17 +78,6 @@ export class CreateUserDto {
   })
   confirm_password: string;
 
-  @ApiProperty({ description: 'The is verified', type: Boolean })
-  @IsOptional()
-  @IsBoolean()
-  is_verified: boolean;
-
-  @IsOptional()
-  @ApiProperty({
-    description: 'The role of the user',
-  })
-  role: string;
-
   @ApiProperty({
     description: 'Optional referral code from the user who referred this user',
     type: String,

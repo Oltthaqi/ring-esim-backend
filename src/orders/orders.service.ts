@@ -93,7 +93,7 @@ export class OrdersService {
       pricing = await this.cartService.calculatePricePreview(
         {
           subtotal: authorizedAmount,
-          currency: createOrderDto.currency || 'EUR',
+          currency: 'EUR',
           promoCode: createOrderDto.promoCode,
           rewardType: createOrderDto.rewardType as any,
           creditsToUse: createOrderDto.creditsToUse,
@@ -109,7 +109,7 @@ export class OrdersService {
       userId,
       orderNumber,
       status: OrderStatus.PENDING,
-      currency: packageTemplate.currency || createOrderDto.currency || 'EUR',
+      currency: 'EUR',
       amount: authorizedAmount,
 
       // Optional fields from DTO
@@ -602,8 +602,12 @@ export class OrdersService {
     return this.toResponseDto(await this.findOne(id));
   }
 
-  async cancel(id: string): Promise<OrderResponseDto> {
+  async cancel(id: string, userId?: string): Promise<OrderResponseDto> {
     const order = await this.findOne(id);
+
+    if (userId && order.userId !== userId) {
+      throw new NotFoundException('Order not found');
+    }
 
     if (order.status === OrderStatus.COMPLETED) {
       throw new BadRequestException('Cannot cancel a completed order');
@@ -738,7 +742,7 @@ export class OrdersService {
       orderType: OrderType.TOPUP,
       status: OrderStatus.PENDING,
       amount: authorizedAmount,
-      currency: packageTemplate.currency || topupOrderDto.currency || 'EUR',
+      currency: 'EUR',
       subscriberId: topupOrderDto.subscriberId,
       validityPeriod: topupOrderDto.validityPeriod,
       activePeriodStart: topupOrderDto.activePeriodStart
@@ -819,7 +823,7 @@ export class OrdersService {
       orderType: OrderType.ONE_TIME,
       status: OrderStatus.PENDING,
       amount: authorizedAmount,
-      currency: availability.packageTemplate.currency || createSimpleOrderDto.currency || 'EUR',
+      currency: 'EUR',
 
       // eSIM details from allocation
       subscriberId: allocatedEsim.subscriberId,
