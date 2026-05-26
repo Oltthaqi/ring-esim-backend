@@ -130,7 +130,7 @@ export class OrdersController {
     examples: {
       basic: {
         summary: 'Basic eSIM order',
-        description: 'Standard order with USD currency',
+        description: 'Standard order with EUR currency',
         value: {
           packageTemplateId: '594193',
           amount: 1.99,

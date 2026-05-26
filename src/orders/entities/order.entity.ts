@@ -66,7 +66,7 @@ export class Order {
   @Column({ type: 'decimal', precision: 12, scale: 2 })
   amount: number;
 
-  @Column({ type: 'varchar', length: 8, default: 'USD' })
+  @Column({ type: 'varchar', length: 8, default: 'EUR' })
   currency: string;
 
   // Subscriber information

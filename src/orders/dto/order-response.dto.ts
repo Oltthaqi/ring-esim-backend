@@ -41,7 +41,7 @@ export class OrderResponseDto {
       periodDays: { type: 'number', example: 7 },
       volume: { type: 'string', example: '5GB' },
       price: { type: 'number', example: 25.99 },
-      currency: { type: 'string', example: 'USD' },
+      currency: { type: 'string', example: 'EUR' },
     },
   })
   packageTemplate?: {
@@ -77,7 +77,7 @@ export class OrderResponseDto {
 
   @ApiProperty({
     description: 'Currency code',
-    example: 'USD',
+    example: 'EUR',
   })
   currency: string;
 
