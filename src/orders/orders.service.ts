@@ -71,6 +71,14 @@ export class OrdersService {
       throw new NotFoundException('Package template not found');
     }
 
+    // Use server-side price — never trust the client-sent amount
+    if (!packageTemplate.price) {
+      throw new BadRequestException(
+        'Package template has no price configured',
+      );
+    }
+    const authorizedAmount = Number(packageTemplate.price);
+
     // Generate unique order number
     const orderNumber = await this.generateOrderNumber();
 
@@ -84,8 +92,8 @@ export class OrdersService {
     ) {
       pricing = await this.cartService.calculatePricePreview(
         {
-          subtotal: createOrderDto.amount,
-          currency: createOrderDto.currency || 'USD',
+          subtotal: authorizedAmount,
+          currency: createOrderDto.currency || 'EUR',
           promoCode: createOrderDto.promoCode,
           rewardType: createOrderDto.rewardType as any,
           creditsToUse: createOrderDto.creditsToUse,
@@ -101,8 +109,8 @@ export class OrdersService {
       userId,
       orderNumber,
       status: OrderStatus.PENDING,
-      currency: createOrderDto.currency || 'USD',
-      amount: createOrderDto.amount,
+      currency: packageTemplate.currency || createOrderDto.currency || 'EUR',
+      amount: authorizedAmount,
 
       // Optional fields from DTO
       subscriberId: createOrderDto.subscriberId,
@@ -137,9 +145,9 @@ export class OrdersService {
       orderData.total_amount = pricing.total_amount;
       orderData.amount_due_after_credits = pricing.amount_due;
     } else {
-      orderData.subtotal_amount = createOrderDto.amount;
-      orderData.total_amount = createOrderDto.amount;
-      orderData.amount_due_after_credits = createOrderDto.amount;
+      orderData.subtotal_amount = authorizedAmount;
+      orderData.total_amount = authorizedAmount;
+      orderData.amount_due_after_credits = authorizedAmount;
     }
 
     const order = this.orderRepository.create(orderData);
@@ -713,6 +721,13 @@ export class OrdersService {
       throw new NotFoundException('Package template not found');
     }
 
+    if (!packageTemplate.price) {
+      throw new BadRequestException(
+        'Package template has no price configured',
+      );
+    }
+    const authorizedAmount = Number(packageTemplate.price);
+
     // Create top-up order
     const orderNumber = await this.generateOrderNumber();
 
@@ -722,8 +737,8 @@ export class OrdersService {
       packageTemplateId: packageTemplate.id, // Use internal database UUID
       orderType: OrderType.TOPUP,
       status: OrderStatus.PENDING,
-      amount: topupOrderDto.amount,
-      currency: topupOrderDto.currency || 'USD',
+      amount: authorizedAmount,
+      currency: packageTemplate.currency || topupOrderDto.currency || 'EUR',
       subscriberId: topupOrderDto.subscriberId,
       validityPeriod: topupOrderDto.validityPeriod,
       activePeriodStart: topupOrderDto.activePeriodStart
@@ -789,6 +804,13 @@ export class OrdersService {
     // Generate order number
     const orderNumber = await this.generateOrderNumber();
 
+    if (!availability.packageTemplate.price) {
+      throw new BadRequestException(
+        'Package template has no price configured',
+      );
+    }
+    const authorizedAmount = Number(availability.packageTemplate.price);
+
     // Create order with allocated eSIM details
     const orderData = {
       userId,
@@ -796,8 +818,8 @@ export class OrdersService {
       packageTemplateId: availability.packageTemplate.id, // Use internal database UUID
       orderType: OrderType.ONE_TIME,
       status: OrderStatus.PENDING,
-      amount: createSimpleOrderDto.amount,
-      currency: createSimpleOrderDto.currency || 'USD',
+      amount: authorizedAmount,
+      currency: availability.packageTemplate.currency || createSimpleOrderDto.currency || 'EUR',
 
       // eSIM details from allocation
       subscriberId: allocatedEsim.subscriberId,
@@ -1493,7 +1515,7 @@ export class OrdersService {
       dataVolume: '1GB',
       validityDays: 7,
       amount: 10.0,
-      currency: 'USD',
+      currency: 'EUR',
       qrCodeUrl: undefined, // Force generation
       qrCodeText: qrText,
       logoUrl: this.emailService.getLogoUrl(),

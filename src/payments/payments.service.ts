@@ -16,7 +16,7 @@ export class PaymentsService {
    */
   async createPaymentIntent(
     amount: number,
-    currency: string = 'USD',
+    currency: string = 'EUR',
     metadata: Record<string, string> = {},
   ): Promise<Stripe.PaymentIntent> {
     try {

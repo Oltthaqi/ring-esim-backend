@@ -32,9 +32,9 @@ export class TopupOrderDto {
   amount: number;
 
   @ApiPropertyOptional({
-    description: 'Currency code (defaults to USD)',
-    example: 'USD',
-    default: 'USD',
+    description: 'Currency code (defaults to EUR)',
+    example: 'EUR',
+    default: 'EUR',
   })
   @IsString()
   @IsOptional()

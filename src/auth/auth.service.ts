@@ -5,6 +5,7 @@ import {
   NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
+import { HttpService } from '@nestjs/axios';
 import { UsersEntity } from 'src/users/entitites/users.entity';
 import * as bcrypt from 'bcryptjs';
 import { ConfigService } from '@nestjs/config';
@@ -55,6 +56,7 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly emailService: EmailService,
     private readonly dataSource: DataSource,
+    private readonly httpService: HttpService,
   ) {
     const fromEnv = Number(
       this.configService.get<string>('ACCESS_TOKEN_EXPIRATION_SECONDS'),
@@ -575,6 +577,60 @@ export class AuthService {
     );
 
     return newUser;
+  }
+
+  async loginGoogleToken(accessToken: string): Promise<TokenDto> {
+    this.logger.log('[LOGIN GOOGLE TOKEN] Starting Google token login process');
+
+    let googleData: {
+      email?: string;
+      given_name?: string;
+      family_name?: string;
+      email_verified?: boolean | string;
+    };
+
+    try {
+      const response = await this.httpService.axiosRef.get(
+        'https://www.googleapis.com/oauth2/v3/userinfo',
+        { headers: { Authorization: `Bearer ${accessToken}` } },
+      );
+      googleData = response.data;
+    } catch {
+      this.logger.error('[LOGIN GOOGLE TOKEN] Failed to fetch Google userinfo');
+      throw new UnauthorizedException('Invalid Google access token');
+    }
+
+    if (!googleData.email) {
+      throw new UnauthorizedException(
+        'Could not retrieve email from Google profile',
+      );
+    }
+
+    this.logger.debug(
+      `[LOGIN GOOGLE TOKEN] Google profile: email=${googleData.email}`,
+    );
+
+    const emailVerified =
+      googleData.email_verified === true ||
+      googleData.email_verified === 'true';
+
+    const user = await this.validateGoogleUser({
+      email: googleData.email,
+      first_name: googleData.given_name || '',
+      last_name: googleData.family_name || '',
+      is_verified: emailVerified,
+      password: '',
+    });
+
+    if (!user.is_verified) {
+      await this.userService.updateUserVerification(user.id);
+      user.is_verified = true;
+    }
+
+    this.logger.log(
+      `[LOGIN GOOGLE TOKEN] Issuing tokens for user: ${user.email}`,
+    );
+    return this.getSessionTokens(user);
   }
 
   async loginApple(identityToken: string): Promise<TokenDto> {

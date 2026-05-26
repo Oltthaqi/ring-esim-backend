@@ -58,7 +58,7 @@ export class CreateOrders1754800000000 implements MigrationInterface {
             name: 'currency',
             type: 'varchar',
             length: '8',
-            default: "'USD'",
+            default: "'EUR'",
           },
           {
             name: 'subscriberId',

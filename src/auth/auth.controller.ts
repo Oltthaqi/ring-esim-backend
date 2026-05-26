@@ -39,6 +39,7 @@ import { Role } from 'src/users/enums/role.enum';
 import { GoogleAuthGuard } from './utils/google-auth.guard';
 import TokenDto from './dto/token.dto';
 import { AppleSignInDto } from './dto/apple-sign-in.dto';
+import { GoogleSignInDto } from './dto/google-sign-in.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
@@ -323,6 +324,35 @@ export class AuthController {
     }
 
     return res.json(tokens);
+  }
+
+  @Post('google/token')
+  @ApiOperation({ summary: 'Google Sign In via mobile access token' })
+  @ApiResponse({
+    status: 200,
+    description: 'Returns JWT access token after verifying Google access token',
+    type: TokenDto,
+  })
+  @ApiResponse({ status: 401, description: 'Invalid Google access token' })
+  async googleTokenLogin(
+    @Body() googleSignInDto: GoogleSignInDto,
+  ): Promise<TokenDto> {
+    this.logger.log('[GOOGLE TOKEN LOGIN] Request received');
+
+    if (!googleSignInDto.accessToken) {
+      throw new BadRequestException('accessToken is required');
+    }
+
+    try {
+      const tokens = await this.authService.loginGoogleToken(
+        googleSignInDto.accessToken,
+      );
+      this.logger.log('[GOOGLE TOKEN LOGIN] Success');
+      return tokens;
+    } catch (error) {
+      this.logger.error(`[GOOGLE TOKEN LOGIN] Error: ${error.message}`);
+      throw error;
+    }
   }
 
   @Post('apple/login')

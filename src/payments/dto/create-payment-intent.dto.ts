@@ -20,8 +20,8 @@ export class CreatePaymentIntentDto {
 
   @ApiPropertyOptional({
     description: 'Currency code',
-    example: 'USD',
-    default: 'USD',
+    example: 'EUR',
+    default: 'EUR',
   })
   @IsString()
   @IsOptional()
