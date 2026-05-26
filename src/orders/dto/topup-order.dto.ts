@@ -31,14 +31,6 @@ export class TopupOrderDto {
   @IsNumber()
   amount: number;
 
-  @ApiPropertyOptional({
-    description: 'Currency code (defaults to EUR)',
-    example: 'EUR',
-    default: 'EUR',
-  })
-  @IsString()
-  @IsOptional()
-  currency?: string;
 
   @ApiPropertyOptional({
     description: 'Carry over remaining data from previous packages',

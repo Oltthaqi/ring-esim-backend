@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -38,16 +39,16 @@ export class UsersController {
   }
 
   @UseGuards(JwtRolesGuard)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.USER)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @Get('/email/:email')
   async getUserByEmail(
     @Param('email') email: string,
   ): Promise<UsersEntity | null> {
     return await this.usersService.getUserByEmail(email);
   }
-  // @Roles('Administrator')
+
   @UseGuards(JwtRolesGuard)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.USER)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @Get('/all')
   async getAllUsers(
     @Query() pagableParams: PagableParamsDto,
@@ -59,22 +60,27 @@ export class UsersController {
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.USER)
   @Patch('/update/:id')
   async updateUser(
+    @Req() req: Request & { user: { uuid: string; role: Role } },
     @Param('id') id: string,
     @Body() userDto: UpdateUserDto,
   ): Promise<UsersEntity | null> {
+    const isAdmin =
+      req.user.role === Role.ADMIN || req.user.role === Role.SUPER_ADMIN;
+    if (!isAdmin && req.user.uuid !== id) {
+      throw new ForbiddenException('You can only update your own profile');
+    }
     return await this.usersService.updateUser(id, userDto);
   }
 
-  // @Roles('Administrator')
   @UseGuards(JwtRolesGuard)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.USER)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @Get('/:id')
   async getUserById(@Param('id') id: string): Promise<UsersEntity | null> {
     return await this.usersService.getUserById(id);
   }
 
   @UseGuards(JwtRolesGuard)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.USER)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   @Patch('/status/:id')
   async changeAccountStatus(
     @Param('id') id: string,

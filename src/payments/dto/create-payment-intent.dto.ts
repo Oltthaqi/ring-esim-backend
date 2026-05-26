@@ -18,12 +18,4 @@ export class CreatePaymentIntentDto {
   @Min(0.5)
   amount: number;
 
-  @ApiPropertyOptional({
-    description: 'Currency code',
-    example: 'EUR',
-    default: 'EUR',
-  })
-  @IsString()
-  @IsOptional()
-  currency?: string;
 }

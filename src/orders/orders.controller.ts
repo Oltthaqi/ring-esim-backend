@@ -234,9 +234,18 @@ export class OrdersController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Order not found' })
   @Get(':id')
-  @Roles(Role.USER, Role.ADMIN)
-  async findOne(@Param('id') id: string): Promise<OrderResponseDto> {
+  @Roles(Role.USER, Role.ADMIN, Role.SUPER_ADMIN)
+  async findOne(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+  ): Promise<OrderResponseDto> {
     const order = await this.ordersService.findOne(id);
+    const userId = req.user.uuid || req.user.id;
+    const isAdmin =
+      req.user.role === Role.ADMIN || req.user.role === Role.SUPER_ADMIN;
+    if (!isAdmin && order.userId !== userId) {
+      throw new BadRequestException('Order not found');
+    }
     return this.ordersService['toResponseDto'](order);
   }
 
@@ -270,9 +279,15 @@ export class OrdersController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 404, description: 'Order not found' })
   @Post(':id/cancel')
-  @Roles(Role.USER, Role.ADMIN)
-  async cancel(@Param('id') id: string): Promise<OrderResponseDto> {
-    return this.ordersService.cancel(id);
+  @Roles(Role.USER, Role.ADMIN, Role.SUPER_ADMIN)
+  async cancel(
+    @Param('id') id: string,
+    @Request() req: AuthenticatedRequest,
+  ): Promise<OrderResponseDto> {
+    const userId = req.user.uuid || req.user.id;
+    const isAdmin =
+      req.user.role === Role.ADMIN || req.user.role === Role.SUPER_ADMIN;
+    return this.ordersService.cancel(id, isAdmin ? undefined : userId);
   }
 
   @ApiOperation({ summary: 'Manually process order (Admin only)' })
@@ -314,7 +329,7 @@ export class OrdersController {
     },
   })
   @Post('test-ocs')
-  @Roles(Role.USER)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
   async testOcsConnection(): Promise<any> {
     return this.ordersService.testOcsConnection();
   }

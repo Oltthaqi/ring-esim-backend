@@ -95,8 +95,8 @@ export class UsersService {
     const user = this.usersRepository.create({
       ...userDto,
       password: cryptedPassword,
-      is_verified: userDto.is_verified ?? false,
-      role: userDto.role ? (userDto.role as Role) : Role.USER,
+      is_verified: false,
+      role: Role.USER,
       referral_code: referralCode,
       referred_by_user_id: referredByUserId,
     });
