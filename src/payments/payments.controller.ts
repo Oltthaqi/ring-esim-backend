@@ -83,6 +83,21 @@ export class PaymentsController {
       );
     }
 
+    // Validate the requested amount matches what the server computed for this order.
+    // TypeORM/MySQL returns DECIMAL columns as strings, so coerce first.
+    const expectedAmount = Number(
+      order.amount_due_after_credits ?? order.amount,
+    );
+    const requestedAmount = Number(createPaymentIntentDto.amount);
+    if (Math.abs(requestedAmount - expectedAmount) > 0.01) {
+      this.logger.warn(
+        `Amount mismatch for order ${order.id}: client sent ${requestedAmount}, expected ${expectedAmount}`,
+      );
+      throw new BadRequestException(
+        `Payment amount does not match the order amount due (expected ${expectedAmount})`,
+      );
+    }
+
     // Create payment intent
     const paymentIntent = await this.paymentsService.createPaymentIntent(
       createPaymentIntentDto.amount,
