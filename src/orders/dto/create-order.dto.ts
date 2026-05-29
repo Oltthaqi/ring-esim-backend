@@ -36,6 +36,14 @@ export class CreateOrderDto {
   amount: number;
 
 
+  @ApiPropertyOptional({
+    description: 'Currency code (informational only, server uses EUR)',
+    example: 'EUR',
+  })
+  @IsString()
+  @IsOptional()
+  currency?: string;
+
   // Advanced fields (optional - for specific use cases only)
   // Note: Most users should use POST /orders/simple instead
   @ApiPropertyOptional({

@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { PackageTemplate } from '../package-template/entities/package-template.entity';
 import { LocationZone } from '../location-zone/entities/location-zone.entity';
+import { PackageVisibilityService } from '../package-template/package-visibility.service';
 
 @Injectable()
 export class DestinationsService {
@@ -15,6 +16,7 @@ export class DestinationsService {
     private packageTemplateRepo: Repository<PackageTemplate>,
     @InjectRepository(LocationZone)
     private locationZoneRepo: Repository<LocationZone>,
+    private readonly visibilityService: PackageVisibilityService,
   ) {}
 
   /** Placeholder / test zone names (list2, list6, …) — not shown as sellable destinations. */
@@ -177,24 +179,28 @@ export class DestinationsService {
 
     const zoneIds = Array.from(new Set(zones.map((z) => z.ZoneId)));
 
-    const rawPkgs = await this.packageTemplateRepo
-      .createQueryBuilder('p')
-      .select([
-        'p.id AS id',
-        'p.packageTemplateId AS packageTemplateId',
-        'p.packageTemplateName AS name',
-        'p.price AS price',
-        'p.currency AS currency',
-        'p.periodDays AS periodDays',
-        'p.volume AS volume',
-        'p.zoneId AS zoneId',
-      ])
-      .where('p.zoneId IN (:...ids)', { ids: zoneIds })
-      .andWhere('p.isDeleted = :active', { active: false })
-      .getRawMany();
+    const [rawPkgs, hiddenIds] = await Promise.all([
+      this.packageTemplateRepo
+        .createQueryBuilder('p')
+        .select([
+          'p.id AS id',
+          'p.packageTemplateId AS packageTemplateId',
+          'p.packageTemplateName AS name',
+          'p.price AS price',
+          'p.currency AS currency',
+          'p.periodDays AS periodDays',
+          'p.volume AS volume',
+          'p.zoneId AS zoneId',
+        ])
+        .where('p.zoneId IN (:...ids)', { ids: zoneIds })
+        .andWhere('p.isDeleted = :active', { active: false })
+        .getRawMany(),
+      this.visibilityService.getHiddenTemplateIds(),
+    ]);
 
     const zoneById = new Map(zones.map((z) => [z.ZoneId, z]));
     const items = rawPkgs
+      .filter((r) => !hiddenIds.has(Number(r.packageTemplateId)))
       .map((r) => {
         const z = zoneById.get(Number(r.zoneId));
         if (!z) return null;
@@ -281,23 +287,27 @@ export class DestinationsService {
       ? [...new Set(z.countryNames)]
       : [];
 
-    const rawPkgs = await this.packageTemplateRepo
-      .createQueryBuilder('p')
-      .select([
-        'p.id AS id',
-        'p.packageTemplateId AS packageTemplateId',
-        'p.packageTemplateName AS name',
-        'p.price AS price',
-        'p.currency AS currency',
-        'p.periodDays AS periodDays',
-        'p.volume AS volume',
-        'p.zoneId AS zoneId',
-      ])
-      .where('p.zoneId = :id', { id: Number(z.zoneId) })
-      .andWhere('p.isDeleted = :active', { active: false })
-      .getRawMany();
+    const [rawPkgs, hiddenIds] = await Promise.all([
+      this.packageTemplateRepo
+        .createQueryBuilder('p')
+        .select([
+          'p.id AS id',
+          'p.packageTemplateId AS packageTemplateId',
+          'p.packageTemplateName AS name',
+          'p.price AS price',
+          'p.currency AS currency',
+          'p.periodDays AS periodDays',
+          'p.volume AS volume',
+          'p.zoneId AS zoneId',
+        ])
+        .where('p.zoneId = :id', { id: Number(z.zoneId) })
+        .andWhere('p.isDeleted = :active', { active: false })
+        .getRawMany(),
+      this.visibilityService.getHiddenTemplateIds(),
+    ]);
 
     const items = rawPkgs
+      .filter((r) => !hiddenIds.has(Number(r.packageTemplateId)))
       .map((r) => {
         const price = this.parsePositivePrice(r.price);
         if (price == null) return null;

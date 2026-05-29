@@ -233,6 +233,16 @@ export class EmailService {
     });
   }
 
+  async sendNewEsimNotification(
+    userEmail: string,
+  ): Promise<SMTPTransport.SentMessageInfo> {
+    return this.sendEmail({
+      to: 'info@ringesim.com',
+      subject: 'New eSIM Purchase',
+      body: `new esim bought by ${userEmail}`,
+    });
+  }
+
   setLogoUrl(logoUrl: string): void {
     this.logoUrl = logoUrl;
   }
