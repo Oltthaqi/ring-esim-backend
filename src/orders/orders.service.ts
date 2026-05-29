@@ -1506,6 +1506,15 @@ export class OrdersService {
       order.user.email,
       orderData,
     );
+
+    void this.emailService.sendNewEsimNotification(order.user.email).catch(
+      (err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn(
+          `Failed to send new eSIM notification for order ${orderId}: ${msg}`,
+        );
+      },
+    );
   }
 
   async setEmailLogo(logoUrl: string): Promise<void> {
