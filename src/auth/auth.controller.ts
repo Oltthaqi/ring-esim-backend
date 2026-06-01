@@ -355,8 +355,8 @@ export class AuthController {
     }
   }
 
-  @Post('apple/login')
-  @ApiOperation({ summary: 'Apple Sign In - Verify identity token' })
+  @Post('apple/token')
+  @ApiOperation({ summary: 'Apple Sign In via mobile identity token' })
   @ApiResponse({
     status: 200,
     description:

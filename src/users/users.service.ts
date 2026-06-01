@@ -136,6 +136,12 @@ export class UsersService {
 
     return user;
   }
+
+  async getUserByAppleId(appleId: string): Promise<UsersEntity | null> {
+    return this.usersRepository.findOne({
+      where: { apple_id: appleId, is_deleted: false },
+    });
+  }
   async getUsersByEmail(email: string[]): Promise<UsersEntity[] | null> {
     return await this.usersRepository.find({
       where: {
