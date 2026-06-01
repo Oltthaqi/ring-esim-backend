@@ -671,14 +671,17 @@ export class AuthService {
       const appleUserId = appleUser.sub; // Apple's unique user identifier
 
       if (!email) {
-        // If email is not in token, try to find user by apple_user_id if we store it
-        // For now, we'll require email on first sign in
+        // Subsequent Apple sign-in — Apple omits email after first auth; look up by apple_id
         this.logger.warn(
-          '[LOGIN APPLE] Email not found in token - this may be a subsequent sign in',
+          '[LOGIN APPLE] No email in token — looking up by apple_id',
         );
-        throw new BadRequestException(
-          'Email is required for first-time Apple sign in',
-        );
+        const existingUser = await this.userService.getUserByAppleId(appleUserId);
+        if (!existingUser) {
+          throw new UnauthorizedException(
+            'No account found for this Apple ID. Please sign in again to share your email.',
+          );
+        }
+        return this.getSessionTokens(existingUser);
       }
 
       // Validate/create user
@@ -707,7 +710,8 @@ export class AuthService {
       this.logger.error(`[LOGIN APPLE] Error: ${error.message}`);
       if (
         error instanceof BadRequestException ||
-        error instanceof NotFoundException
+        error instanceof NotFoundException ||
+        error instanceof UnauthorizedException
       ) {
         throw error;
       }
@@ -719,46 +723,59 @@ export class AuthService {
     this.logger.log(
       `[VALIDATE APPLE USER] Validating Apple user: ${appleUser.email}`,
     );
-    this.logger.debug(
-      `[VALIDATE APPLE USER] User data: firstName=${appleUser.first_name}, lastName=${appleUser.last_name}, appleUserId=${appleUser.apple_user_id}, verified=${appleUser.is_verified}`,
-    );
 
-    // First, try to find user by email
-    const user = await this.userService.getUserByEmail(appleUser.email);
-
-    if (user) {
-      this.logger.log(
-        `[VALIDATE APPLE USER] Existing user found: ${user.email} (ID: ${user.id})`,
+    // 1. Look up by apple_id first (fast path for repeat sign-ins)
+    if (appleUser.apple_user_id) {
+      const byAppleId = await this.userService.getUserByAppleId(
+        appleUser.apple_user_id,
       );
-      // Ensure role is set; if missing, set and persist
-      if (!(user as any).role) {
-        (user as any).role = Role.USER;
-        await this.userService.updateUser(user.id, {
-          role: Role.USER,
-        } as any);
-      }
-      // Auto-verify Apple-authenticated users if not already verified
-      if (!user.is_verified) {
+      if (byAppleId) {
         this.logger.log(
-          `[VALIDATE APPLE USER] Auto-verifying user: ${user.id}`,
+          `[VALIDATE APPLE USER] Found by apple_id: ${byAppleId.id}`,
         );
-        await this.userService.updateUserVerification(user.id);
-        user.is_verified = true;
+        if (!byAppleId.is_verified) {
+          await this.userService.updateUserVerification(byAppleId.id);
+          byAppleId.is_verified = true;
+        }
+        return byAppleId;
       }
-      return user;
     }
 
-    // New user - register them
+    // 2. Fall back to email lookup (links apple_id for existing accounts)
+    const userByEmail = await this.userService.getUserByEmail(appleUser.email);
+    if (userByEmail) {
+      this.logger.log(
+        `[VALIDATE APPLE USER] Found by email: ${userByEmail.id}`,
+      );
+      if (!userByEmail.apple_id && appleUser.apple_user_id) {
+        await this.userService.updateUser(userByEmail.id, {
+          apple_id: appleUser.apple_user_id,
+        } as any);
+        userByEmail.apple_id = appleUser.apple_user_id;
+      }
+      if (!userByEmail.is_verified) {
+        await this.userService.updateUserVerification(userByEmail.id);
+        userByEmail.is_verified = true;
+      }
+      return userByEmail;
+    }
+
+    // 3. New user — register and link apple_id
     this.logger.log(
       `[VALIDATE APPLE USER] New user, registering: ${appleUser.email}`,
     );
-    // Generate a random password to satisfy registration validation
     const randomPassword = randomBytes(16).toString('hex');
     const newUser = await this.userService.register({
       ...appleUser,
       password: randomPassword,
     });
-    await this.userService.updateUserVerification(newUser.id); // Apple users are automatically verified
+    await this.userService.updateUserVerification(newUser.id);
+    if (appleUser.apple_user_id) {
+      await this.userService.updateUser(newUser.id, {
+        apple_id: appleUser.apple_user_id,
+      } as any);
+      newUser.apple_id = appleUser.apple_user_id;
+    }
     this.logger.log(
       `[VALIDATE APPLE USER] New user registered: ${newUser.email} (ID: ${newUser.id})`,
     );

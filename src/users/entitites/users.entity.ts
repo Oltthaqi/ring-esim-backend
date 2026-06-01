@@ -48,6 +48,14 @@ export class UsersEntity {
 
   @Column({ type: 'varchar', nullable: true, default: null })
   @ApiProperty({
+    description: 'Apple unique user ID (sub claim from identity token)',
+    type: String,
+    required: false,
+  })
+  apple_id: string;
+
+  @Column({ type: 'varchar', nullable: true, default: null })
+  @ApiProperty({
     description: 'The phone number',
     type: String,
   })
